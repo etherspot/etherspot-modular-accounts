@@ -1,4 +1,4 @@
-# Etherspot Prime Contracts
+# Etherspot Modular Accounts
 
 [![NPM version][npm-image]][npm-url]
 ![MIT licensed][license-image]
@@ -46,7 +46,7 @@ For individual deployment scripts (example):
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.23;
 
-import "@etherspot/prime-contracts/src/modular-etherspot-wallet/wallet/ModularEtherspotWallet.sol";
+import "@etherspot/modular-accounts/src/wallet/ModularEtherspotWallet.sol";
 
 // ...
 ```
