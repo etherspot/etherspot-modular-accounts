@@ -26,8 +26,9 @@ contract ModularEtherspotWalletFactory is FactoryStaker {
             .createDeterministicERC1967(msg.value, implementation, _salt);
 
         if (!alreadyDeployed) {
+            address owner = address(uint160(uint256(bytes32(initCode[0:32]))));
             IModularEtherspotWallet(account).initializeAccount(initCode);
-            emit ModularAccountDeployed(account, msg.sender);
+            emit ModularAccountDeployed(account, owner);
         }
         return account;
     }
