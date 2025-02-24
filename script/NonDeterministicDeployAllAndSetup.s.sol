@@ -21,16 +21,13 @@ import {MultipleOwnerECDSAValidator} from "../src/modules/validators/MultipleOwn
  * If error: Failed to get EIP-1559 fees: add --legacy tag
  * For certain chains (currently only mantle and mantle_sepolia): add --skip-simulation tag
  */
-
 contract NonDeterministicDeployAllAndSetupScript is Script {
-    address public constant ENTRY_POINT_07 =
-        0x0000000071727De22E5E9d8BAf0edAc6f37da032;
+    address public constant ENTRY_POINT_07 = 0xe1078568F094308749AE9833ba8160b9E8bd909f;
 
     /*//////////////////////////////////////////////////////////////
                   Replace These Values With Your Own
     //////////////////////////////////////////////////////////////*/
-    address public constant DEPLOYER =
-        0x09FD4F6088f2025427AB1e89257A44747081Ed59;
+    address public constant DEPLOYER = 0x09FD4F6088f2025427AB1e89257A44747081Ed59;
     uint256 public constant FACTORY_STAKE = 1e16;
 
     function run() external {
@@ -48,19 +45,13 @@ contract NonDeterministicDeployAllAndSetupScript is Script {
         //////////////////////////////////////////////////////////////*/
         console2.log("Deploying ModularEtherspotWallet implementation...");
         implementation = new ModularEtherspotWallet();
-        console2.log(
-            "Wallet implementation deployed at address",
-            address(implementation)
-        );
+        console2.log("Wallet implementation deployed at address", address(implementation));
 
         /*//////////////////////////////////////////////////////////////
                       Deploy ModularEtherspotWalletFactory
         //////////////////////////////////////////////////////////////*/
         console2.log("Deploying ModularEtherspotWalletFactory...");
-        factory = new ModularEtherspotWalletFactory(
-            address(implementation),
-            DEPLOYER
-        );
+        factory = new ModularEtherspotWalletFactory(address(implementation), DEPLOYER);
         console2.log("Wallet factory deployed at address", address(factory));
 
         /*//////////////////////////////////////////////////////////////
@@ -75,19 +66,14 @@ contract NonDeterministicDeployAllAndSetupScript is Script {
         //////////////////////////////////////////////////////////////*/
         console2.log("Deploying MultipleOwnerECDSAValidator...");
         multipleOwnerECDSAValidator = new MultipleOwnerECDSAValidator();
-        console2.log(
-            "MultipleOwnerECDSAValidator deployed at address",
-            address(multipleOwnerECDSAValidator)
-        );
+        console2.log("MultipleOwnerECDSAValidator deployed at address", address(multipleOwnerECDSAValidator));
 
         /*//////////////////////////////////////////////////////////////
               Stake ModularEtherspotWalletFactory With EntryPoint
         //////////////////////////////////////////////////////////////*/
         console2.log("Staking factory contract with EntryPoint...");
         factory.addStake{value: FACTORY_STAKE}(address(entryPoint), 86400);
-        IStakeManager.DepositInfo memory info = entryPoint.getDepositInfo(
-            address(factory)
-        );
+        IStakeManager.DepositInfo memory info = entryPoint.getDepositInfo(address(factory));
         console2.log("Staked amount:", info.stake);
         console2.log("Factory staked!");
 
