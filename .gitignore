@@ -19,5 +19,5 @@ out/
 lcov.info
 coverage/
 
-# Node
-node_modules/
+# Soldeer
+dependencies

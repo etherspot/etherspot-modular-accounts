@@ -7,12 +7,22 @@ Smart contract infrastructure for Etherspot Modular Accounts, supporting ERC7579
 
 ## Installation & Setup
 
-Ensure that (Foundry)[https://github.com/foundry-rs/foundry] is installed.
+Ensure that [Foundry](https://github.com/foundry-rs/foundry) is installed.
 
-```
+```bash
 forge install
 forge build
 forge test
+```
+
+## Dependencies
+
+Uses Solidity native dependency manager [Soldeer](https://soldeer.xyz/) as package manager.
+
+To install dependencies:
+
+```bash
+forge soldeer install
 ```
 
 ## ERC7579 Modular Contract Deployments

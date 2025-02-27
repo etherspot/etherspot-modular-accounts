@@ -1,6 +1,0 @@
-ERC4337/=lib/account-abstraction/contracts/
-ERC7579/=src/ERC7579/
-forge-std/=lib/forge-std/src/
-openzeppelin/=lib/openzeppelin-contracts/
-solady/=lib/solady/
-solarray/=lib/solarray/src/

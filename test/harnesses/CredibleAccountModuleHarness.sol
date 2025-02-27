@@ -2,8 +2,8 @@
 pragma solidity 0.8.23;
 
 import "ERC7579/libs/ModeLib.sol";
-import {CredibleAccountModule} from "../../../src/modules/validators/CredibleAccountModule.sol";
-import "../../../src/common/Structs.sol";
+import {CredibleAccountModule} from "../../src/modules/validators/CredibleAccountModule.sol";
+import "../../src/common/Structs.sol";
 
 contract CredibleAccountModuleHarness is CredibleAccountModule {
     constructor(

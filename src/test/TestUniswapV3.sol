@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.23;
 
-import "openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {TestWETH} from "./TestWETH.sol";
 
 /// @notice Very basic simulation of what UniswapV3 does with swaps for testing purposes
