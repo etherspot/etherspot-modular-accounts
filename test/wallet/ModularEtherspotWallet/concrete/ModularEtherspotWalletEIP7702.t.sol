@@ -52,13 +52,9 @@ contract ModularEtherspotWalletEIP7702Test is TestUtils {
             IERC7579Account.execute,
             (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(MOCK_TARGET), uint256(0), callData))
         );
-        // Get nonce
-        uint256 nonce = _getNonce(eoa7702.pub, address(MOCK_VALIDATOR));
-        // Get signature
-        bytes memory signature = hex"41414141";
         // Create the userOp and add the data
         PackedUserOperation memory op = _createUserOp(eoa7702.pub, address(MOCK_VALIDATOR));
-        op.nonce = nonce;
+        op.nonce = _getNonce(eoa7702.pub, address(MOCK_VALIDATOR));
         op.callData = opCalldata;
         bytes32 hash = ENTRYPOINT.getUserOpHash(op);
         op.signature = _ethSign(hash, eoa7702);
@@ -85,10 +81,9 @@ contract ModularEtherspotWalletEIP7702Test is TestUtils {
         // Encode the call into the calldata for the userOp
         bytes memory opCalldata =
             abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(executions)));
-        uint256 nonce = _getNonce(eoa7702.pub, address(MOCK_VALIDATOR));
         // Create the userOp and add the data
         PackedUserOperation memory op = _createUserOp(eoa7702.pub, address(MOCK_VALIDATOR));
-        op.nonce = nonce;
+        op.nonce = _getNonce(eoa7702.pub, address(MOCK_VALIDATOR));
         op.callData = opCalldata;
         bytes32 hash = ENTRYPOINT.getUserOpHash(op);
         op.signature = _ethSign(hash, eoa7702);
@@ -115,10 +110,9 @@ contract ModularEtherspotWalletEIP7702Test is TestUtils {
         // Encode the call into the calldata for the userOp
         bytes memory opCalldata =
             abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(executions)));
-        uint256 nonce = _getNonce(eoa7702.pub, address(MOCK_VALIDATOR));
         // Create the userOp and add the data
         PackedUserOperation memory op = _createUserOp(eoa7702.pub, address(MOCK_VALIDATOR));
-        op.nonce = nonce;
+        op.nonce = _getNonce(eoa7702.pub, address(MOCK_VALIDATOR));
         op.callData = opCalldata;
         bytes32 hash = ENTRYPOINT.getUserOpHash(op);
         op.signature = _ethSign(hash, eoa7702);
@@ -168,9 +162,8 @@ contract ModularEtherspotWalletEIP7702Test is TestUtils {
                 abi.encodePacked(address(MOCK_DELEGATE_TARGET), callData)
             )
         );
-        uint256 nonce = _getNonce(eoa7702.pub, address(MOCK_VALIDATOR));
         PackedUserOperation memory op = _createUserOp(eoa7702.pub, address(MOCK_VALIDATOR));
-        op.nonce = nonce;
+        op.nonce = _getNonce(eoa7702.pub, address(MOCK_VALIDATOR));
         op.callData = opCalldata;
         bytes32 hash = ENTRYPOINT.getUserOpHash(op);
         op.signature = _ethSign(hash, eoa7702);
@@ -276,13 +269,9 @@ contract ModularEtherspotWalletEIP7702Test is TestUtils {
             IERC7579Account.execute,
             (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(MOCK_TARGET), uint256(0), callData))
         );
-        // Get nonce
-        uint256 nonce = _getNonce(acc7702, address(ECDSA_VALIDATOR));
-        // Get signature
-        bytes memory signature = hex"41414141";
         // Create the userOp and add the data
         PackedUserOperation memory op = _createUserOp(acc7702, address(ECDSA_VALIDATOR));
-        op.nonce = nonce;
+        op.nonce = _getNonce(acc7702, address(ECDSA_VALIDATOR));
         op.callData = opCalldata;
         bytes32 hash = ENTRYPOINT.getUserOpHash(op);
         op.signature = _ethSign(hash, eoa7702);
@@ -314,10 +303,9 @@ contract ModularEtherspotWalletEIP7702Test is TestUtils {
         // Encode the call into the calldata for the userOp
         bytes memory opCalldata =
             abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(executions)));
-        uint256 nonce = _getNonce(acc7702, address(ECDSA_VALIDATOR));
         // Create the userOp and add the data
         PackedUserOperation memory op = _createUserOp(acc7702, address(ECDSA_VALIDATOR));
-        op.nonce = nonce;
+        op.nonce = _getNonce(acc7702, address(ECDSA_VALIDATOR));
         op.callData = opCalldata;
         bytes32 hash = ENTRYPOINT.getUserOpHash(op);
         op.signature = _ethSign(hash, eoa7702);
@@ -386,9 +374,8 @@ contract ModularEtherspotWalletEIP7702Test is TestUtils {
                 abi.encodePacked(address(MOCK_DELEGATE_TARGET), callData)
             )
         );
-        uint256 nonce = _getNonce(eoa7702.pub, address(ECDSA_VALIDATOR));
         PackedUserOperation memory op = _createUserOp(eoa7702.pub, address(ECDSA_VALIDATOR));
-        op.nonce = nonce;
+        op.nonce = _getNonce(eoa7702.pub, address(ECDSA_VALIDATOR));
         op.callData = opCalldata;
         bytes32 hash = ENTRYPOINT.getUserOpHash(op);
         op.signature = _ethSign(hash, eoa7702);
