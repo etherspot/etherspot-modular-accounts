@@ -2,12 +2,12 @@
 pragma solidity ^0.8.21;
 
 import "forge-std/Test.sol";
-import "ERC7579/test/dependencies/EntryPoint.sol";
-import "ERC7579/test/Bootstrap.t.sol";
-import {MockValidator} from "ERC7579/test/mocks/MockValidator.sol";
-import {MockExecutor} from "ERC7579/test/mocks/MockExecutor.sol";
-import {MockTarget} from "ERC7579/test/mocks/MockTarget.sol";
-import {ModularEtherspotWalletFactory} from "../../../../src/wallet/ModularEtherspotWalletFactory.sol";
+import "../../../../src/test/dependencies/EntryPoint.sol";
+import "../../../../src/libraries/BootstrapLib.sol";
+import {MockValidator} from "../../../../src/test/mocks/MockValidator.sol";
+import {MockExecutor} from "../../../../src/test/mocks/MockExecutor.sol";
+import {MockTarget} from "../../../../src/test/mocks/MockTarget.sol";
+import {ModularEtherspotWalletFactory} from "../../../../src/factory/ModularEtherspotWalletFactory.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import {ModularTestBase} from "../../../ModularTestBase.sol";
 
@@ -26,43 +26,21 @@ contract ModularEtherspotWalletFactory_Fuzz_Test is ModularTestBase {
 
     function test_createAccount(User memory _eoa) public {
         // setup account init config
-        BootstrapConfig[] memory validators = makeBootstrapConfig(
-            address(mockVal),
-            hex""
-        );
-        BootstrapConfig[] memory executors = makeBootstrapConfig(
-            address(mockExec),
-            hex""
-        );
-        BootstrapConfig memory hook = _makeBootstrapConfig(address(0), hex"");
-        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(
-            address(0),
-            hex""
-        );
+        BootstrapConfig[] memory validators = BootstrapLib._buildArrayConfig(address(MOCK_VALIDATOR), hex"");
+        BootstrapConfig[] memory executors = BootstrapLib._buildArrayConfig(address(MOCK_EXECUTOR), hex"");
+        BootstrapConfig memory hook = BootstrapLib._buildEmptySingleConfig();
+        BootstrapConfig[] memory fallbacks = BootstrapLib._buildEmptyArrayConfig();
         bytes memory initCode = abi.encode(
-            _eoa.pub,
-            address(bootstrapSingleton),
-            abi.encodeCall(
-                Bootstrap.initMSA,
-                (validators, executors, hook, fallbacks)
-            )
+            address(BOOTSTRAP),
+            abi.encodeCall(BOOTSTRAP.initializeModularAccount, (validators, executors, hook, fallbacks))
         );
         vm.startPrank(_eoa.pub);
         // create account
-        scw = ModularEtherspotWallet(
-            payable(
-                factory.createAccount({salt: TEST_SALT, initCode: initCode})
-            )
+        SCW = ModularEtherspotWallet(
+            payable(FACTORY.createAccount({_owner: _eoa.pub, _salt: TEST_SALT, _initCode: initCode}))
         );
-        address expectedAddress = factory.getAddress({
-            salt: TEST_SALT,
-            initcode: initCode
-        });
-        assertEq(
-            address(scw),
-            expectedAddress,
-            "Computed wallet address should always equal wallet address created"
-        );
+        address expectedAddress = FACTORY.getAddress({_salt: TEST_SALT, _initcode: initCode});
+        assertEq(address(SCW), expectedAddress, "Computed wallet address should always equal wallet address created");
         vm.stopPrank();
     }
 }

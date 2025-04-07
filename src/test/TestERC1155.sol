@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity ^0.8.27;
 
 import "solady/src/tokens/ERC1155.sol";
 
@@ -8,21 +8,11 @@ contract TestERC1155 is ERC1155 {
         return "https://example.com";
     }
 
-    function mint(
-        address to,
-        uint256 id,
-        uint256 amount,
-        bytes memory data
-    ) public {
+    function mint(address to, uint256 id, uint256 amount, bytes memory data) public {
         _mint(to, id, amount, data);
     }
 
-    function batchMint(
-        address to,
-        uint256[] memory ids,
-        uint256[] memory amounts,
-        bytes memory data
-    ) public {
+    function batchMint(address to, uint256[] memory ids, uint256[] memory amounts, bytes memory data) public {
         _batchMint(to, ids, amounts, data);
     }
 }

@@ -54,7 +54,7 @@ For individual deployment scripts (example):
 
 ```solidity
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity ^0.8.27;;
 
 import "@etherspot/modular-accounts/src/wallet/ModularEtherspotWallet.sol";
 

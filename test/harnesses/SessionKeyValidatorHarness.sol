@@ -1,23 +1,16 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity ^0.8.27;
 
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 import {SessionKeyValidator} from "../../src/modules/validators/SessionKeyValidator.sol";
-import {ExecutionValidation, SessionData} from "../../src/common/Structs.sol";
-import {ComparisonRule} from "../../src/common/Enums.sol";
+import {ExecutionValidation, SessionData} from "../../src/types/Structs.sol";
+import {ComparisonRule} from "../../src/types/Enums.sol";
 
 contract SessionKeyValidatorHarness is SessionKeyValidator {
-    function exposed_extractExecutionValidationAndSignature(
-        bytes calldata _userOpSig
-    )
+    function exposed_extractExecutionValidationAndSignature(bytes calldata _userOpSig)
         external
         pure
-        returns (
-            ExecutionValidation[] memory execValidations,
-            bytes32 r,
-            bytes32 s,
-            uint8 v
-        )
+        returns (ExecutionValidation[] memory execValidations, bytes32 r, bytes32 s, uint8 v)
     {
         return _extractExecutionValidationAndSignature(_userOpSig);
     }
@@ -38,22 +31,10 @@ contract SessionKeyValidatorHarness is SessionKeyValidator {
         uint256 value,
         bytes calldata callData
     ) external returns (bool) {
-        return
-            _validatePermission(
-                _sender,
-                _sd,
-                _execValidations,
-                target,
-                value,
-                callData
-            );
+        return _validatePermission(_sender, _sd, _execValidations, target, value, callData);
     }
 
-    function exposed_checkCondition(
-        bytes32 _param,
-        bytes32 _value,
-        ComparisonRule _rule
-    ) external returns (bool) {
+    function exposed_checkCondition(bytes32 _param, bytes32 _value, ComparisonRule _rule) external returns (bool) {
         return _checkCondition(_param, _value, _rule);
     }
 }

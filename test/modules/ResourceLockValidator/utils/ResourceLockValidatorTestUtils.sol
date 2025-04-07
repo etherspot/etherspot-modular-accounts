@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity ^0.8.27;
 
 import "forge-std/Test.sol";
-import "ERC7579/interfaces/IERC7579Account.sol";
-import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
-import {ModeLib} from "ERC7579/libs/ModeLib.sol";
+import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
+import "../../../../src/interfaces/base/IERC7579Account.sol";
+import {ExecutionLib} from "../../../../src/libraries/ExecutionLib.sol";
+import {ModeLib} from "../../../../src/libraries/ModeLib.sol";
 import {ModularTestBase} from "../../../ModularTestBase.sol";
-import "../../../../src/common/Constants.sol";
-import "../../../../src/common/Enums.sol";
-import "../../../../src/common/Structs.sol";
+import {MODULE_TYPE_VALIDATOR} from "../../../../src/types/Constants.sol";
+import {HookType} from "../../../../src/types/Enums.sol";
+import {ResourceLock, TokenData} from "../../../../src/types/Structs.sol";
 
 contract ResourceLockValidatorTestUtils is ModularTestBase {
     /*//////////////////////////////////////////////////////////////
@@ -16,11 +17,15 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
     //////////////////////////////////////////////////////////////*/
 
     modifier withRequiredModules() {
-        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
-        _installHookViaMultiplexer(scw, address(cam), HookType.GLOBAL);
-        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
-        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(rlv), abi.encode(eoa.pub));
-        vm.startPrank(address(scw));
+        address[] memory owners = new address[](1);
+        owners[0] = eoa.pub;
+        _installModule(eoa.pub, SCW, MODULE_TYPE_VALIDATOR, address(MULTIPLE_OWNER_ECDSA_VALIDATOR), abi.encode(owners));
+        _installHookViaMultiplexer(SCW, address(CREDIBLE_ACCOUNT_HOOK), HookType.GLOBAL);
+        _installModule(
+            eoa.pub, SCW, MODULE_TYPE_VALIDATOR, address(CREDIBLE_ACCOUNT_VALIDATOR), abi.encode(MODULE_TYPE_VALIDATOR)
+        );
+        _installModule(eoa.pub, SCW, MODULE_TYPE_VALIDATOR, address(RESOURCE_LOCK_VALIDATOR), abi.encode(eoa.pub));
+        vm.startPrank(address(SCW));
         _;
         vm.stopPrank();
     }
@@ -34,7 +39,7 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
         returns (PackedUserOperation memory op, ResourceLock memory rl, bytes32[] memory proof, bytes32 root)
     {
         // Create base UserOp
-        op = _createUserOp(_scw, address(rlv));
+        op = _createUserOp(_scw, address(RESOURCE_LOCK_VALIDATOR));
         // Create ResourceLock and generate proof
         rl = _generateResourceLock(_scw, _user.pub);
         (proof, root,) = getTestProof(_buildResourceLockHash(rl), _validProof);
@@ -44,7 +49,9 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
             (
                 ModeLib.encodeSimpleSingle(),
                 ExecutionLib.encodeSingle(
-                    address(cam), 0, abi.encodeWithSelector(cam.enableSessionKey.selector, abi.encode(rl))
+                    address(CREDIBLE_ACCOUNT_VALIDATOR),
+                    0,
+                    abi.encodeWithSelector(CREDIBLE_ACCOUNT_VALIDATOR.enableSessionKey.selector, abi.encode(rl))
                 )
             )
         );
@@ -71,8 +78,8 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
 
     function _generateResourceLock(address _scw, address _sk) internal view returns (ResourceLock memory) {
         TokenData[] memory td = new TokenData[](2);
-        td[0] = TokenData({token: address(usdt), amount: 100});
-        td[1] = TokenData({token: address(dai), amount: 200});
+        td[0] = TokenData({token: address(USDT), amount: 100});
+        td[1] = TokenData({token: address(DAI), amount: 200});
         ResourceLock memory rl = ResourceLock({
             chainId: 42161,
             smartWallet: _scw,

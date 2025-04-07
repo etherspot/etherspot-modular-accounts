@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.23;
+pragma solidity ^0.8.27;
 
 import "forge-std/Test.sol";
 import {IEntryPoint} from "ERC4337/interfaces/IEntryPoint.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {MODULE_TYPE_VALIDATOR} from "ERC7579/interfaces/IERC7579Module.sol";
-import "ERC7579/interfaces/IERC7579Account.sol";
-import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
-import "ERC7579/libs/ModeLib.sol";
-import {SentinelListLib} from "ERC7579/libs/SentinelList.sol";
-import "ERC7579/test/dependencies/EntryPoint.sol";
+import "../../../../src/interfaces/base/IERC7579Account.sol";
+import {ExecutionLib} from "../../../../src/libraries/ExecutionLib.sol";
+import "../../../../src/libraries/ModeLib.sol";
+import {SentinelListLib} from "../../../../src/libraries/SentinelList.sol";
+import "../../../../src/test/dependencies/EntryPoint.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import {SessionKeyValidator} from "../../../../src/modules/validators/SessionKeyValidator.sol";
-import {ExecutionValidation, ParamCondition, Permission, SessionData} from "../../../../src/common/Structs.sol";
-import {ComparisonRule} from "../../../../src/common/Enums.sol";
+import {CALLTYPE_STATIC, MODULE_TYPE_VALIDATOR} from "../../../../src/types/Constants.sol";
+import {
+    Execution, ExecutionValidation, ParamCondition, Permission, SessionData
+} from "../../../../src/types/Structs.sol";
+import {ComparisonRule} from "../../../../src/types/Enums.sol";
 import {TestCounter} from "../../../../src/test/TestCounter.sol";
 import {TestERC20} from "../../../../src/test/TestERC20.sol";
 import {TestWETH} from "../../../../src/test/TestWETH.sol";
@@ -82,41 +84,53 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_installModule() public {
         // Expect the module installation event to be emitted
         vm.expectEmit(true, false, false, false);
-        emit SKV_ModuleInstalled(address(scw));
+        emit SKV_ModuleInstalled(address(SCW));
         // Execute the module installation
-        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(skv), hex"");
+        _installModule(eoa.pub, SCW, MODULE_TYPE_VALIDATOR, address(SESSION_KEY_VALIDATOR), hex"");
         // Verify that the module is installed
-        assertTrue(scw.isModuleInstalled(1, address(skv), ""), "SessionKeyValidator module should be installed");
+        assertTrue(
+            SCW.isModuleInstalled(1, address(SESSION_KEY_VALIDATOR), ""),
+            "SessionKeyValidator module should be installed"
+        );
     }
 
     function test_installModule_RevertIf_DoubleInstall() public {
         // Expect the module installation event to be emitted
         vm.expectEmit(true, false, false, false);
-        emit SKV_ModuleInstalled(address(scw));
+        emit SKV_ModuleInstalled(address(SCW));
         // Execute the module installation
-        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(skv), hex"");
-        _toRevert(SentinelListLib.LinkedList_EntryAlreadyInList.selector, abi.encode(address(skv)));
-        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(skv), hex"");
+        _installModule(eoa.pub, SCW, MODULE_TYPE_VALIDATOR, address(SESSION_KEY_VALIDATOR), hex"");
+        _toRevert(SentinelListLib.LinkedList_EntryAlreadyInList.selector, abi.encode(address(SESSION_KEY_VALIDATOR)));
+        _installModule(eoa.pub, SCW, MODULE_TYPE_VALIDATOR, address(SESSION_KEY_VALIDATOR), hex"");
     }
 
     function test_uninstallModule() public validatorInstalled {
-        assertTrue(scw.isModuleInstalled(1, address(skv), ""));
+        assertTrue(SCW.isModuleInstalled(1, address(SESSION_KEY_VALIDATOR), ""));
         // Set up a session key
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Verify that one session key is associated with the wallet
-        assertEq(skv.getSessionKeysByWallet().length, 1, "Should have 1 associated session key");
+        assertEq(SESSION_KEY_VALIDATOR.getSessionKeysByWallet().length, 1, "Should have 1 associated session key");
         // Expect the module uninstallation event to be emitted
         vm.expectEmit(true, false, false, false);
-        emit SKV_ModuleUninstalled(address(scw));
+        emit SKV_ModuleUninstalled(address(SCW));
         // Execute the module uninstallation
-        _uninstallModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(skv), hex"");
+        _uninstallModule(eoa.pub, SCW, MODULE_TYPE_VALIDATOR, address(SESSION_KEY_VALIDATOR), hex"");
         // Verify that SessionKeyValidator is uninstalled
-        assertFalse(scw.isModuleInstalled(1, address(skv), ""), "SessionKeyValidator should be uninstalled");
+        assertFalse(
+            SCW.isModuleInstalled(1, address(SESSION_KEY_VALIDATOR), ""), "SessionKeyValidator should be uninstalled"
+        );
         // Verify that SessionKeyValidator is not initialized on wallet after uninstall
-        assertFalse(skv.isInitialized(address(scw)), "SessionKeyValidator should not be initialized after uninstall");
+        assertFalse(
+            SESSION_KEY_VALIDATOR.isInitialized(address(SCW)),
+            "SessionKeyValidator should not be initialized after uninstall"
+        );
         // Verify that no session keys are associated after uninstall
-        assertEq(skv.getSessionKeysByWallet().length, 0, "Should have no associated session keys after uninstall");
+        assertEq(
+            SESSION_KEY_VALIDATOR.getSessionKeysByWallet().length,
+            0,
+            "Should have no associated session keys after uninstall"
+        );
     }
 
     function test_uninstallModule_cantUninstallIfNotInstalled() public {
@@ -126,34 +140,37 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         // when trying to uninstall without installing first
         _toRevert(SessionKeyValidator.SKV_ModuleNotInstalled.selector, hex"");
         // Attempt to uninstall SessionKeyValidator
-        skv.onUninstall("");
+        SESSION_KEY_VALIDATOR.onUninstall("");
     }
 
     function test_isModuleType() public {
         // Verify that SessionKeyValidator is of MODULE_TYPE_VALIDATOR type
         assertTrue(
-            skv.isModuleType(MODULE_TYPE_VALIDATOR), "SessionKeyValidator should be of MODULE_TYPE_VALIDATOR type"
+            SESSION_KEY_VALIDATOR.isModuleType(MODULE_TYPE_VALIDATOR),
+            "SessionKeyValidator should be of MODULE_TYPE_VALIDATOR type"
         );
     }
 
     function test_isInitialized() public validatorInstalled {
         // Verify that SessionKeyValidator is initialized for the wallet
-        assertTrue(skv.isInitialized(address(scw)), "SessionKeyValidator should be initialized for SCW");
+        assertTrue(
+            SESSION_KEY_VALIDATOR.isInitialized(address(SCW)), "SessionKeyValidator should be initialized for SCW"
+        );
     }
 
     function test_isValidSignatureWithSender() public {
         // Expect the function call to revert with NotImplemented error
         _toRevert(SessionKeyValidator.NotImplemented.selector, hex"");
         // Call isValidSignatureWithSender
-        skv.isValidSignatureWithSender(address(0), bytes32(0), "");
+        SESSION_KEY_VALIDATOR.isValidSignatureWithSender(address(0), bytes32(0), "");
     }
 
     function test_enableSessionKey() public {
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
         vm.expectEmit(false, false, false, true);
-        emit SKV_SessionKeyEnabled(sessionKey.pub, address(scw));
-        skv.enableSessionKey(sd, perms);
-        Permission[] memory skPerm = skv.getSessionKeyPermissions(sessionKey.pub);
+        emit SKV_SessionKeyEnabled(sessionKey.pub, address(SCW));
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
+        Permission[] memory skPerm = SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub);
         assertEq(skPerm.length, 1);
         assertEq(skPerm[0].target, address(counter1));
         assertEq(skPerm[0].selector, TestCounter.multiTypeCall.selector);
@@ -181,18 +198,18 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             SessionKeyValidator.SKV_InvalidSessionKeyData.selector, abi.encode(address(0), validAfter, validUntil)
         );
         // Attempt to set up a session key with a zero address
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
     }
 
     function test_enableSessionKey_RevertIf_SessionKeyAlreadyExists() public {
         // Set up a session key
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Expect the function call to revert with SKV_SessionKeyAlreadyExists error
         // when trying to enable an already existing session key
         _toRevert(SessionKeyValidator.SKV_SessionKeyAlreadyExists.selector, abi.encode(sessionKey.pub));
         // Attempt to enable the same session key again
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
     }
 
     function test_enableSessionKey_RevertIf_InvalidValidAfter() public {
@@ -219,7 +236,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             SessionKeyValidator.SKV_InvalidSessionKeyData.selector, abi.encode(sessionKey.pub, uint48(0), validUntil)
         );
         // Attempt to set up a session key with an invalid (zero) validAfter timestamp
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
     }
 
     function test_enableSessionKey_RevertIf_InvalidValidUntil() public {
@@ -246,7 +263,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             SessionKeyValidator.SKV_InvalidSessionKeyData.selector, abi.encode(sessionKey.pub, validAfter, uint48(0))
         );
         // Attempt to set up a session key with an invalid (zero) validAfter timestamp
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
     }
 
     function test_enableSessionKey_RevertIf_InvalidUsageAmount() public {
@@ -275,7 +292,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             abi.encode(sessionKey.pub, address(counter1), TestCounter.multiTypeCall.selector, 100 wei, 0, conditions)
         );
         // Attempt to set up a session key with an invalid (zero) usage amount
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
     }
 
     function test_enableSessionKey_RevertIf_PermissionInvalidTarget() public {
@@ -303,48 +320,57 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             abi.encode(sessionKey.pub, address(0), perms[0].selector, perms[0].payableLimit, perms[0].uses, conditions)
         );
         // Attempt to set up a session key with the invalid target
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
     }
 
     function test_disableSessionKey() public {
-        vm.startPrank(address(scw));
+        vm.startPrank(address(SCW));
         // Set up default session key and permission data
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Verify that wallet has one session key initially
-        assertEq(skv.getSessionKeysByWallet().length, 1, "Should have one associated session key initially");
+        assertEq(
+            SESSION_KEY_VALIDATOR.getSessionKeysByWallet().length, 1, "Should have one associated session key initially"
+        );
         // Verify that the session key is valid initially
-        assertFalse(skv.getSessionKeyData(sessionKey.pub).validUntil == 0, "Session key should be valid initially");
+        assertFalse(
+            SESSION_KEY_VALIDATOR.getSessionKeyData(sessionKey.pub).validUntil == 0,
+            "Session key should be valid initially"
+        );
         // Expect the SKV_SessionKeyDisabled event to be emitted
         vm.expectEmit(true, true, false, false);
-        emit SKV_SessionKeyDisabled(sessionKey.pub, address(scw));
+        emit SKV_SessionKeyDisabled(sessionKey.pub, address(SCW));
         // Disable the session key
-        skv.disableSessionKey(sessionKey.pub);
+        SESSION_KEY_VALIDATOR.disableSessionKey(sessionKey.pub);
         // Expect the function call to revert with SKV_SessionKeyDoesNotExist error
         // when trying to get  SessionData for disabled session key
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(sessionKey.pub));
-        skv.getSessionKeyData(sessionKey.pub);
+        SESSION_KEY_VALIDATOR.getSessionKeyData(sessionKey.pub);
 
         // Verify that there are no associated session keys after disabling
-        assertEq(skv.getSessionKeysByWallet().length, 0, "Should have no associated session keys after disabling");
+        assertEq(
+            SESSION_KEY_VALIDATOR.getSessionKeysByWallet().length,
+            0,
+            "Should have no associated session keys after disabling"
+        );
         // Expect the function call to revert with SKV_SessionKeyDoesNotExist error
         // when trying to get Permission data for disabled session key
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(sessionKey.pub));
-        skv.getSessionKeyPermissions(sessionKey.pub);
+        SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub);
         vm.stopPrank();
     }
 
     function test_disableSessionKey_RevertIf_SessionKeyAlreadyDisabled() public {
         // Set up default session key and permission data
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Disable the session key
-        skv.disableSessionKey(sessionKey.pub);
+        SESSION_KEY_VALIDATOR.disableSessionKey(sessionKey.pub);
         // Expect the function call to revert with SKV_SessionKeyDoesNotExist error
         // when trying to disable an already disabled session key
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(sessionKey.pub));
         // Attempt to disable the already disabled session key
-        skv.disableSessionKey(sessionKey.pub);
+        SESSION_KEY_VALIDATOR.disableSessionKey(sessionKey.pub);
     }
 
     function test_disableSessionKey_RevertIf_NonExistentSessionKey() public {
@@ -354,13 +380,13 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         // when trying to disable a non-existant session key
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(newSessionKey));
         // Attempt to disable the already disabled session key
-        skv.disableSessionKey(newSessionKey);
+        SESSION_KEY_VALIDATOR.disableSessionKey(newSessionKey);
     }
 
     function test_rotateSessionKey() public {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         address newSessionKey = address(0x1234567890123456789012345678901234567890);
         SessionData memory newSd = SessionData({
             sessionKey: newSessionKey,
@@ -380,42 +406,43 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             paramConditions: newConditions
         });
 
-        skv.rotateSessionKey(sessionKey.pub, newSd, newPerms);
+        SESSION_KEY_VALIDATOR.rotateSessionKey(sessionKey.pub, newSd, newPerms);
         assertFalse(
-            skv.getSessionKeyData(newSessionKey).validUntil == 0, "New session key should be valid after rotation"
+            SESSION_KEY_VALIDATOR.getSessionKeyData(newSessionKey).validUntil == 0,
+            "New session key should be valid after rotation"
         );
         // Expect the function call to revert with SKV_SessionKeyDoesNotExist error
         // when trying to get SessionData for disabled session key
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(sessionKey.pub));
-        skv.getSessionKeyData(sessionKey.pub);
+        SESSION_KEY_VALIDATOR.getSessionKeyData(sessionKey.pub);
     }
 
     function test_rotateSessionKey_RevertIf_NonExistantSessionKey() public {
         address newSessionKey = address(0x1234567890123456789012345678901234567890);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Expect the function call to revert with SKV_SessionKeyDoesNotExist error
         // when trying to rotate non-existant session key
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(newSessionKey));
         // Attempt to rotate the non-existant session key
-        skv.rotateSessionKey(newSessionKey, sd, perms);
+        SESSION_KEY_VALIDATOR.rotateSessionKey(newSessionKey, sd, perms);
     }
 
     function test_toggleSessionKeyPause_and_isSessionLive() public {
-        vm.startPrank(address(scw));
+        vm.startPrank(address(SCW));
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Verify that the session key is live initially
-        assertTrue(skv.isSessionLive(sessionKey.pub), "Session key should be live initially");
+        assertTrue(SESSION_KEY_VALIDATOR.isSessionLive(sessionKey.pub), "Session key should be live initially");
         // Expect the SKV_SessionKeyPaused event to be emitted
         vm.expectEmit(true, true, false, false);
-        emit SKV_SessionKeyPauseToggled(sessionKey.pub, address(scw), false);
+        emit SKV_SessionKeyPauseToggled(sessionKey.pub, address(SCW), false);
         // Pause the session key
-        skv.toggleSessionKeyPause(sessionKey.pub);
+        SESSION_KEY_VALIDATOR.toggleSessionKeyPause(sessionKey.pub);
         // Verify that the session key is now paused
-        assertFalse(skv.isSessionLive(sessionKey.pub), "Session key should be paused");
+        assertFalse(SESSION_KEY_VALIDATOR.isSessionLive(sessionKey.pub), "Session key should be paused");
         vm.stopPrank();
     }
 
@@ -424,21 +451,21 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         // when trying to toggle pause for a non-existent session key
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(sessionKey.pub));
         // Attempt to toggle pause for a non-existent session key
-        skv.toggleSessionKeyPause(sessionKey.pub);
+        SESSION_KEY_VALIDATOR.toggleSessionKeyPause(sessionKey.pub);
     }
 
     function test_getSessionKeyData_and_getSessionKeyPermissions() public {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Get SessionData
-        SessionData memory data = skv.getSessionKeyData(sessionKey.pub);
+        SessionData memory data = SESSION_KEY_VALIDATOR.getSessionKeyData(sessionKey.pub);
         // Verify SessionData
         assertEq(data.validAfter, validAfter, "ValidAfter should match the set value");
         assertEq(data.validUntil, validUntil, "ValidUntil should match the set value");
         assertEq(data.live, true, "Session key should be live");
         // Get Permission data
-        Permission[] memory permissions = skv.getSessionKeyPermissions(sessionKey.pub);
+        Permission[] memory permissions = SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub);
         // Verify Permission data
         assertEq(permissions[0].target, address(counter1), "First permission target should be counter1");
         assertEq(
@@ -469,7 +496,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         // when trying to get data for a non-existent session key
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(newSessionKey));
         // Attempt to get data for a non-existent session key
-        skv.getSessionKeyData(newSessionKey);
+        SESSION_KEY_VALIDATOR.getSessionKeyData(newSessionKey);
     }
 
     function test_getSessionKeyPermissions_RevertIf_SessionKeyDoesNotExist() public {
@@ -478,15 +505,15 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         // Expect the function call to revert with SKV_SessionKeyDoesNotExist error
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(nonExistentSessionKey));
         // Attempt to get permissions for the non-existent session key
-        skv.getSessionKeyPermissions(nonExistentSessionKey);
+        SESSION_KEY_VALIDATOR.getSessionKeyPermissions(nonExistentSessionKey);
     }
 
     function test_getSessionKeysByWallet() public {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Get wallet session keys
-        address[] memory walletSessionKeys = skv.getSessionKeysByWallet();
+        address[] memory walletSessionKeys = SESSION_KEY_VALIDATOR.getSessionKeysByWallet();
         // Verify that the wallet session keys match the expected session key
         assertEq(walletSessionKeys.length, 1);
         assertEq(walletSessionKeys[0], sessionKey.pub);
@@ -494,7 +521,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_getSessionKeyByWallet_returnEmptyForWalletWithNoSessionKeys() public {
         // Get wallet session keys
-        address[] memory walletSessionKeys = skv.getSessionKeysByWallet();
+        address[] memory walletSessionKeys = SESSION_KEY_VALIDATOR.getSessionKeysByWallet();
         // Verify that the wallet session keys match the expected session key
         assertEq(walletSessionKeys.length, 0);
     }
@@ -502,38 +529,38 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_getUsesLeft_and_updateUses() public {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Verify that the session key has 10 uses initially
-        assertEq(skv.getUsesLeft(sessionKey.pub, 0), 10);
+        assertEq(SESSION_KEY_VALIDATOR.getUsesLeft(sessionKey.pub, 0), 10);
         // Update the session key to have 5 uses and should emit event
         vm.expectEmit(true, true, false, false);
         emit SKV_PermissionUsesUpdated(sessionKey.pub, 0, 10, 5);
-        skv.updateUses(sessionKey.pub, 0, 5);
+        SESSION_KEY_VALIDATOR.updateUses(sessionKey.pub, 0, 5);
         // Verify that the session key has 5 uses
-        assertEq(skv.getUsesLeft(sessionKey.pub, 0), 5);
+        assertEq(SESSION_KEY_VALIDATOR.getUsesLeft(sessionKey.pub, 0), 5);
     }
 
     function test_updateUses_RevertIf_InvaildSessionKey() public {
         // Expect the function call to revert with SKV_SessionKeyDoesNotExist error
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(sessionKey.pub));
         // Attempt to update uses for a non-existent session key
-        skv.updateUses(sessionKey.pub, 0, uint256(11));
+        SESSION_KEY_VALIDATOR.updateUses(sessionKey.pub, 0, uint256(11));
     }
 
     function test_updateValidUntil() public {
-        vm.startPrank(address(scw));
+        vm.startPrank(address(SCW));
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Verify that the session key has 10 uses initially
-        assertEq(skv.getSessionKeyData(sessionKey.pub).validUntil, validUntil);
+        assertEq(SESSION_KEY_VALIDATOR.getSessionKeyData(sessionKey.pub).validUntil, validUntil);
         // Update the session key to have later timestamp and should emit event
         uint48 newValidUntil = uint48(block.timestamp + 14 days);
         vm.expectEmit(true, true, false, false);
-        emit SKV_SessionKeyValidUntilUpdated(sessionKey.pub, address(scw), newValidUntil);
-        skv.updateValidUntil(sessionKey.pub, newValidUntil);
+        emit SKV_SessionKeyValidUntilUpdated(sessionKey.pub, address(SCW), newValidUntil);
+        SESSION_KEY_VALIDATOR.updateValidUntil(sessionKey.pub, newValidUntil);
         // Verify that the session key has 5 uses
-        assertEq(skv.getSessionKeyData(sessionKey.pub).validUntil, newValidUntil);
+        assertEq(SESSION_KEY_VALIDATOR.getSessionKeyData(sessionKey.pub).validUntil, newValidUntil);
         vm.stopPrank();
     }
 
@@ -546,11 +573,11 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         // when trying to update validUntil for a non-existent session key
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(nonExistentSessionKey));
         // Attempt to update validUntil for the non-existent session key
-        skv.updateValidUntil(nonExistentSessionKey, newValidUntil);
+        SESSION_KEY_VALIDATOR.updateValidUntil(nonExistentSessionKey, newValidUntil);
     }
 
     function test_updateValidUntil_MultipleTimes() public {
-        vm.startPrank(address(scw));
+        vm.startPrank(address(SCW));
         // Define multiple new validUntil timestamps
         uint48[] memory newValidUntilList = new uint48[](3);
         newValidUntilList[0] = uint48(block.timestamp + 2 days);
@@ -558,16 +585,16 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         newValidUntilList[2] = uint48(block.timestamp + 4 days);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Perform multiple updates to the validUntil timestamp
         for (uint256 i; i < newValidUntilList.length; ++i) {
             // Expect the SKV_SessionKeyValidUntilUpdated event to be emitted
             vm.expectEmit(true, true, false, true);
-            emit SKV_SessionKeyValidUntilUpdated(sessionKey.pub, address(scw), newValidUntilList[i]);
+            emit SKV_SessionKeyValidUntilUpdated(sessionKey.pub, address(SCW), newValidUntilList[i]);
             // Update the validUntil timestamp
-            skv.updateValidUntil(sessionKey.pub, newValidUntilList[i]);
+            SESSION_KEY_VALIDATOR.updateValidUntil(sessionKey.pub, newValidUntilList[i]);
             // Retrieve updated session key data
-            SessionData memory updatedData = skv.getSessionKeyData(sessionKey.pub);
+            SessionData memory updatedData = SESSION_KEY_VALIDATOR.getSessionKeyData(sessionKey.pub);
             // Verify that the validUntil timestamp has been updated correctly
             assertEq(updatedData.validUntil, newValidUntilList[i], "ValidUntil should be updated correctly");
         }
@@ -577,9 +604,9 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_addPermission() public {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Verify that session key is set up initially with one permission
-        assertEq(skv.getSessionKeyPermissions(sessionKey.pub).length, 1);
+        assertEq(SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub).length, 1);
         // Create a new permission and add to session key
         ParamCondition[] memory newConditions = new ParamCondition[](1);
         newConditions[0] =
@@ -595,16 +622,16 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         vm.expectEmit(false, false, false, true);
         emit SKV_PermissionAdded(
             sessionKey.pub,
-            address(scw),
+            address(SCW),
             newPerm.target,
             newPerm.selector,
             newPerm.payableLimit,
             newPerm.uses,
             newPerm.paramConditions
         );
-        skv.addPermission(sessionKey.pub, newPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, newPerm);
         // Verify that session key now has two permissions
-        assertEq(skv.getSessionKeyPermissions(sessionKey.pub).length, 2);
+        assertEq(SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub).length, 2);
     }
 
     function test_addPermission_RevertIf_SessionKeyDoesNotExist() public {
@@ -624,13 +651,13 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         // when trying to add a permission to a non-existent session key
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(nonExistentSessionKey));
         // Attempt to add a permission to the non-existent session key
-        skv.addPermission(nonExistentSessionKey, newPerm);
+        SESSION_KEY_VALIDATOR.addPermission(nonExistentSessionKey, newPerm);
     }
 
     function test_addPermission_RevertIf_InvalidTarget() public {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up new Permission to be added with invalid target
         ParamCondition[] memory newConditions = new ParamCondition[](1);
         newConditions[0] =
@@ -650,13 +677,13 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             abi.encode(sessionKey.pub, address(0), TestCounter.changeCount.selector, 0, tenUses, newConditions)
         );
         // Attempt to add a permission with an invalid (zero) target address
-        skv.addPermission(sessionKey.pub, newPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, newPerm);
     }
 
     function test_removePermission() public {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create a new permission and add to session key
         ParamCondition[] memory newConditions = new ParamCondition[](1);
         newConditions[0] =
@@ -668,17 +695,17 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: newConditions
         });
-        skv.addPermission(sessionKey.pub, newPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, newPerm);
         // Verify that session key has two permissions
-        assertEq(skv.getSessionKeyPermissions(sessionKey.pub).length, 2);
+        assertEq(SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub).length, 2);
         // Index to be removed (0)
         uint256 idx;
         // Expect event to be emitted
         vm.expectEmit(false, false, false, true);
-        emit SKV_PermissionRemoved(sessionKey.pub, address(scw), idx);
-        skv.removePermission(sessionKey.pub, idx);
+        emit SKV_PermissionRemoved(sessionKey.pub, address(SCW), idx);
+        SESSION_KEY_VALIDATOR.removePermission(sessionKey.pub, idx);
         // Verify that session key now has two permissions
-        assertEq(skv.getSessionKeyPermissions(sessionKey.pub).length, 1);
+        assertEq(SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub).length, 1);
     }
 
     function test_removePermission_RevertIf_SessionKeyDoesNotExist() public {
@@ -688,47 +715,49 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         // when trying to remove a permission from a non-existent session key
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(nonExistentSessionKey));
         // Attempt to remove a permission from the non-existent session key
-        skv.removePermission(nonExistentSessionKey, 0);
+        SESSION_KEY_VALIDATOR.removePermission(nonExistentSessionKey, 0);
     }
 
     function test_removePermission_RevertIf_InvalidPermissionIndex() public {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Get an invalid index (equal to the number of permissions)
-        uint256 invalidIndex = skv.getSessionKeyPermissions(sessionKey.pub).length;
+        uint256 invalidIndex = SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub).length;
         // Expect the function call to revert with SKV_InvalidPermissionIndex error
         // when trying to remove a permission with an invalid index
         _toRevert(SessionKeyValidator.SKV_InvalidPermissionIndex.selector, hex"");
         // Attempt to remove a permission using the invalid index
-        skv.removePermission(sessionKey.pub, invalidIndex);
+        SESSION_KEY_VALIDATOR.removePermission(sessionKey.pub, invalidIndex);
     }
 
     function test_removePermission_RemoveLastPermission() public {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Get the index of the last permission
-        uint256 lastPermissionIndex = skv.getSessionKeyPermissions(sessionKey.pub).length - 1;
+        uint256 lastPermissionIndex = SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub).length - 1;
         // Remove the last permission
-        skv.removePermission(sessionKey.pub, lastPermissionIndex);
+        SESSION_KEY_VALIDATOR.removePermission(sessionKey.pub, lastPermissionIndex);
         // Retrieve updated session key data
-        Permission[] memory newPermissionData = skv.getSessionKeyPermissions(sessionKey.pub);
+        Permission[] memory newPermissionData = SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub);
         // Verify the number of permissions has decreased by 1
         assertEq(newPermissionData.length, 0, "Number of permissions should decrease by 1");
     }
 
     function test_modifyPermission() public {
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         address newTarget = address(0x1234);
         bytes4 newSelector = bytes4(keccak256("newFunction()"));
         uint256 newPayableLimit = 200;
         uint256 newUses = 99;
         ParamCondition[] memory newConditions = new ParamCondition[](1);
         newConditions[0] = ParamCondition({offset: 0, rule: ComparisonRule.EQUAL, value: bytes32(uint256(42))});
-        skv.modifyPermission(sessionKey.pub, 0, newTarget, newSelector, newPayableLimit, newUses, newConditions);
-        Permission[] memory modifiedPerms = skv.getSessionKeyPermissions(sessionKey.pub);
+        SESSION_KEY_VALIDATOR.modifyPermission(
+            sessionKey.pub, 0, newTarget, newSelector, newPayableLimit, newUses, newConditions
+        );
+        Permission[] memory modifiedPerms = SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub);
         assertEq(modifiedPerms[0].target, newTarget);
         assertEq(modifiedPerms[0].selector, newSelector);
         assertEq(modifiedPerms[0].payableLimit, newPayableLimit);
@@ -741,15 +770,16 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_modifyPermission_PartialUpdate() public {
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Store the original paramConditions
-        ParamCondition[] memory originalConditions = skv.getSessionKeyPermissions(sessionKey.pub)[0].paramConditions;
+        ParamCondition[] memory originalConditions =
+            SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub)[0].paramConditions;
         address newTarget = address(0x1234);
         bytes4 newSelector = bytes4(keccak256("newFunction()"));
         uint256 newPayableLimit = 200;
         uint256 newUses = 99;
         // Modify the permission with partial updates
-        skv.modifyPermission(
+        SESSION_KEY_VALIDATOR.modifyPermission(
             sessionKey.pub,
             0,
             newTarget,
@@ -758,7 +788,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             newUses,
             new ParamCondition[](0) // Empty array to keep paramConditions unchanged
         );
-        Permission[] memory modifiedPerms = skv.getSessionKeyPermissions(sessionKey.pub);
+        Permission[] memory modifiedPerms = SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub);
         // Assert that the specified fields have been updated
         assertEq(modifiedPerms[0].target, newTarget);
         assertEq(modifiedPerms[0].selector, newSelector);
@@ -776,7 +806,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_modifyPermission_NonExistentSessionKey() public {
         address nonExistentSessionKey = address(0xdead);
         _toRevert(SessionKeyValidator.SKV_SessionKeyDoesNotExist.selector, abi.encode(nonExistentSessionKey));
-        skv.modifyPermission(
+        SESSION_KEY_VALIDATOR.modifyPermission(
             nonExistentSessionKey,
             0,
             address(0x1234),
@@ -789,10 +819,10 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_modifyPermission_InvalidIndex() public {
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         uint256 invalidIndex = perms.length;
         _toRevert(SessionKeyValidator.SKV_InvalidPermissionIndex.selector, hex"");
-        skv.modifyPermission(
+        SESSION_KEY_VALIDATOR.modifyPermission(
             sessionKey.pub,
             invalidIndex,
             address(0x1234),
@@ -806,7 +836,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Single() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         // Set up execution validation parameters
@@ -815,7 +845,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         bytes memory callData = abi.encodeWithSelector(TestCounter.multiTypeCall.selector, alice.pub, uint256(4), true);
         // Set up a single user operation
         PackedUserOperation memory op =
-            _setupSingleUserOp(address(skv), address(counter1), 0, callData, evs, sessionKey);
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), address(counter1), 0, callData, evs, sessionKey);
         // Expect event emit
         vm.expectEmit(false, false, false, true);
         emit ReceivedMultiTypeCall(alice.pub, 4, true);
@@ -826,7 +856,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Single_Native() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create and add new Permission for session key
         ParamCondition[] memory newConditions = new ParamCondition[](1);
         newConditions[0] = ParamCondition({offset: 0, rule: ComparisonRule.NOT_EQUAL, value: 0});
@@ -837,27 +867,28 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: newConditions
         });
-        skv.addPermission(sessionKey.pub, newPermission);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, newPermission);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         // Set up execution validation for native transfer
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Set up a single user operation
-        PackedUserOperation memory op = _setupSingleUserOp(address(skv), bob.pub, 9 wei, hex"", evs, sessionKey); // Execute the user operation
+        PackedUserOperation memory op =
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), bob.pub, 9 wei, hex"", evs, sessionKey); // Execute the user operation
         _executeUserOp(op);
         // Verify that the receiver's balance has been updated correctly
         // Bob already has balance of 100 ether
         assertEq(bob.pub.balance, 100 ether + 9 wei, "Receiver balance should match transferred amount");
         // Verify that the session key uses has decreased
-        uint256 usesLeft = skv.getUsesLeft(sessionKey.pub, 0);
-        usesLeft = skv.getUsesLeft(sessionKey.pub, 1);
+        uint256 usesLeft = SESSION_KEY_VALIDATOR.getUsesLeft(sessionKey.pub, 0);
+        usesLeft = SESSION_KEY_VALIDATOR.getUsesLeft(sessionKey.pub, 1);
         assertEq(usesLeft, tenUses - 1, "Session key uses should be decremented");
     }
 
     function test_validateUserOp_Single_CallPayable() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create and add new Permission for session key
         ParamCondition[] memory newConditions = new ParamCondition[](1);
         newConditions[0] = ParamCondition({offset: 4, rule: ComparisonRule.GREATER_THAN, value: bytes32(uint256(7579))});
@@ -868,7 +899,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: newConditions
         });
-        skv.addPermission(sessionKey.pub, newPermission);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, newPermission);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         // Set up execution validation for native transfer
@@ -877,7 +908,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         bytes memory callData = abi.encodeWithSelector(TestCounter.payableCall.selector, uint256(7580));
         // Set up a single user operation
         PackedUserOperation memory op =
-            _setupSingleUserOp(address(skv), address(counter1), 86 wei, callData, evs, sessionKey);
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), address(counter1), 86 wei, callData, evs, sessionKey);
         // Execute the user operation
         vm.expectEmit(false, false, false, true);
         emit ReceivedPayableCall(uint256(7580), 86 wei);
@@ -889,9 +920,9 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Single_RevertIf_NoPermissions() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Remove all permissions from the session key (only initialized with one)
-        skv.removePermission(sessionKey.pub, 0);
+        SESSION_KEY_VALIDATOR.removePermission(sessionKey.pub, 0);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         // Set up execution validation parameters
@@ -900,7 +931,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         bytes memory callData = abi.encodeWithSelector(TestCounter.changeCount.selector, 1 ether);
         // Set up a single user operation
         PackedUserOperation memory op =
-            _setupSingleUserOp(address(skv), address(counter1), 0, callData, evs, sessionKey);
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), address(counter1), 0, callData, evs, sessionKey);
         // Expect the operation to revert due to signature error (no permissions)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Attempt to execute the user operation
@@ -910,7 +941,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Single_RevertIf_InvalidSessionKey() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         // Set up execution validation parameters
@@ -919,9 +950,9 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         bytes memory callData = abi.encodeWithSelector(TestCounter.multiTypeCall.selector, alice.pub, 4);
         // Set up a single user operation
         PackedUserOperation memory op =
-            _setupSingleUserOp(address(skv), address(counter1), 0, callData, evs, sessionKey);
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), address(counter1), 0, callData, evs, sessionKey);
         // Disable the session key
-        skv.disableSessionKey(sessionKey.pub);
+        SESSION_KEY_VALIDATOR.disableSessionKey(sessionKey.pub);
         // Expect the operation to revert due to signature error (invalid session key)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Attempt to execute the user operations
@@ -931,7 +962,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Single_RevertIf_InvalidTarget() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         // Set up execution validation parameters
@@ -939,7 +970,8 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         // Encode the call data for the counter function
         bytes memory callData = abi.encodeWithSelector(TestCounter.multiTypeCall.selector, alice.pub, 4);
         // Set up a single user operation
-        PackedUserOperation memory op = _setupSingleUserOp(address(skv), alice.pub, 0, callData, evs, sessionKey);
+        PackedUserOperation memory op =
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), alice.pub, 0, callData, evs, sessionKey);
         // Expect the operation to revert due to signature error (invalid target)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Attempt to execute the user operations
@@ -949,7 +981,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Single_RevertIf_InvalidFunctionSelector() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         // Set up execution validation parameters
@@ -958,7 +990,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         bytes memory invalidData = abi.encodeWithSelector(TestCounter.invalid.selector, alice.pub, uint256(1 ether));
         // Set up a single user operation
         PackedUserOperation memory op =
-            _setupSingleUserOp(address(skv), address(counter1), 0, invalidData, evs, sessionKey);
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), address(counter1), 0, invalidData, evs, sessionKey);
         // Expect the operation to revert due to signature error (invalid function selector)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Attempt to execute the user operations
@@ -968,7 +1000,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Single_RevertIf_NoUsesLeft() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         // Set up execution validation parameters
@@ -977,9 +1009,9 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         bytes memory callData = abi.encodeWithSelector(TestCounter.multiTypeCall.selector, alice.pub, 4);
         // Set up a single user operation
         PackedUserOperation memory op =
-            _setupSingleUserOp(address(skv), address(counter1), 0, callData, evs, sessionKey);
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), address(counter1), 0, callData, evs, sessionKey);
         // Set the remaining uses of the session key to 0
-        skv.updateUses(sessionKey.pub, 0, 0);
+        SESSION_KEY_VALIDATOR.updateUses(sessionKey.pub, 0, 0);
         // Expect the operation to revert due to signature error (no uses left)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Attempt to execute the user operations
@@ -1000,12 +1032,12 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         PackedUserOperation memory op;
         for (uint256 i; i < maxUses; ++i) {
             // Set up a single user operation
-            op = _setupSingleUserOp(address(skv), address(counter1), 0, callData, evs, sessionKey);
+            op = _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), address(counter1), 0, callData, evs, sessionKey);
             (bool success,,) = harness.exposed_validateSessionKeyParams(sessionKey.pub, op, evs);
             assertTrue(success, "Permission should be valid");
         }
         // Set up a single user operation
-        op = _setupSingleUserOp(address(skv), address(counter1), 0, callData, evs, sessionKey);
+        op = _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), address(counter1), 0, callData, evs, sessionKey);
         (bool finalSuccess,,) = harness.exposed_validateSessionKeyParams(sessionKey.pub, op, evs);
         assertFalse(finalSuccess, "Permission should be invalid after maximum uses");
     }
@@ -1013,7 +1045,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Single_RevertIf_Paused() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         // Set up execution validation parameters
@@ -1022,9 +1054,9 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         bytes memory callData = abi.encodeWithSelector(TestCounter.multiTypeCall.selector, alice.pub, 4);
         // Set up a single user operation
         PackedUserOperation memory op =
-            _setupSingleUserOp(address(skv), address(counter1), 0, callData, evs, sessionKey);
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), address(counter1), 0, callData, evs, sessionKey);
         // Set the remaining uses of the session key to 0
-        skv.toggleSessionKeyPause(sessionKey.pub);
+        SESSION_KEY_VALIDATOR.toggleSessionKeyPause(sessionKey.pub);
         // Expect the operation to revert due to signature error (no uses left)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Attempt to execute the user operations
@@ -1034,7 +1066,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Single_Native_RevertIf_InvalidAmount() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create and add new Permission for session key
         ParamCondition[] memory newConditions = new ParamCondition[](1);
         newConditions[0] = ParamCondition({offset: 0, rule: ComparisonRule.NOT_EQUAL, value: 0});
@@ -1045,14 +1077,15 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: newConditions
         });
-        skv.addPermission(sessionKey.pub, newPermission);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, newPermission);
 
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         // Set up execution validation for native transfer
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Set up a single user operation
-        PackedUserOperation memory op = _setupSingleUserOp(address(skv), bob.pub, 11 wei, hex"", evs, sessionKey);
+        PackedUserOperation memory op =
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), bob.pub, 11 wei, hex"", evs, sessionKey);
         // Expect the operation to revert due to signature error (invalid amount)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Attempt to execute the user operation
@@ -1062,7 +1095,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Batch() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create a new permission and add to session key
         ParamCondition[] memory newConditions = new ParamCondition[](1);
         newConditions[0] =
@@ -1074,7 +1107,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: newConditions
         });
-        skv.addPermission(sessionKey.pub, newPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, newPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](2);
         // Set up execution validations for changeCount and multiTypeCall functions
@@ -1088,7 +1121,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         executions[0] = Execution({target: address(counter1), value: 0, callData: callData1});
         executions[1] = Execution({target: address(counter2), value: 0, callData: callData2});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect event emit
         vm.expectEmit(false, false, false, true);
         emit ReceivedMultiTypeCall(alice.pub, 4, true);
@@ -1101,7 +1134,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Batch_PayableCallAndNative() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create a new permission for native transfer and add to session key
         ParamCondition[] memory nativeConditions = new ParamCondition[](1);
         nativeConditions[0] = ParamCondition({offset: 0, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: 0});
@@ -1112,7 +1145,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: nativeConditions
         });
-        skv.addPermission(sessionKey.pub, nativePerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, nativePerm);
         // Create a new permission for payable call and add to session key
         ParamCondition[] memory payableConditions = new ParamCondition[](1);
         payableConditions[0] =
@@ -1124,7 +1157,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: payableConditions
         });
-        skv.addPermission(sessionKey.pub, payablePerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, payablePerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](2);
         // Set up execution validations for payableCall and native transfer functions
@@ -1137,7 +1170,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         executions[0] = Execution({target: bob.pub, value: 3 wei, callData: ""});
         executions[1] = Execution({target: address(counter2), value: 1 wei, callData: payableData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Execute the user operation
         _executeUserOp(op);
         // Verify that both counters have been updated correctly
@@ -1149,7 +1182,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Batch_CallAndNative() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create a new permission for native transfer and add to session key
         ParamCondition[] memory nativeConditions = new ParamCondition[](1);
         nativeConditions[0] = ParamCondition({offset: 0, rule: ComparisonRule.GREATER_THAN_OR_EQUAL, value: 0});
@@ -1160,7 +1193,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: nativeConditions
         });
-        skv.addPermission(sessionKey.pub, nativePerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, nativePerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](2);
         // Set up execution validations for call and native executions
@@ -1173,7 +1206,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         executions[0] = Execution({target: address(counter1), value: 0, callData: callData});
         executions[1] = Execution({target: bob.pub, value: 13 wei, callData: ""});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect event emit
         vm.expectEmit(false, false, false, true);
         emit ReceivedMultiTypeCall(alice.pub, 5, false);
@@ -1186,7 +1219,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Batch_DecreasesPermissionUsesSamePermission() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](3);
         // Set up execution validations for changeCount and multiTypeCall functions
@@ -1203,17 +1236,17 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         executions[1] = Execution({target: address(counter1), value: 0, callData: callData2});
         executions[2] = Execution({target: address(counter1), value: 0, callData: callData3});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Execute the user operation
         _executeUserOp(op);
         // Validate permission uses updates (10 - 3 = 7)
-        assertEq(skv.getUsesLeft(sessionKey.pub, 0), 7, "Should have decreased by 3");
+        assertEq(SESSION_KEY_VALIDATOR.getUsesLeft(sessionKey.pub, 0), 7, "Should have decreased by 3");
     }
 
     function test_validateUserOp_Batch_DecreasesPermissionUsesMultiplePermissions() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create a new permission and add to session key
         ParamCondition[] memory newConditions = new ParamCondition[](1);
         newConditions[0] =
@@ -1225,9 +1258,9 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: newConditions
         });
-        skv.addPermission(sessionKey.pub, newPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, newPerm);
         // Check session key now has 2 permissions
-        Permission[] memory permissions = skv.getSessionKeyPermissions(sessionKey.pub);
+        Permission[] memory permissions = SESSION_KEY_VALIDATOR.getSessionKeyPermissions(sessionKey.pub);
         assertEq(permissions.length, 2, "Session key should have 2 permissions");
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](3);
@@ -1246,7 +1279,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         executions[1] = Execution({target: address(counter1), value: 0, callData: callData2});
         executions[2] = Execution({target: address(counter2), value: 0, callData: callData3});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect event emit
         // vm.expectEmit(true, false, false, true);
         // emit SKV_PermissionUsed(sessionKey.pub, perms[0], 10, 9);
@@ -1261,14 +1294,14 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         // Verify that both counters have been updated correctly
         assertEq(counter2.getCount(), uint256(13), "Counter should be updated");
         // Validate permission uses updates
-        assertEq(skv.getUsesLeft(sessionKey.pub, 0), 8, "Should have decreased by 2");
-        assertEq(skv.getUsesLeft(sessionKey.pub, 1), 9, "Should have decreased by 1");
+        assertEq(SESSION_KEY_VALIDATOR.getUsesLeft(sessionKey.pub, 0), 8, "Should have decreased by 2");
+        assertEq(SESSION_KEY_VALIDATOR.getUsesLeft(sessionKey.pub, 1), 9, "Should have decreased by 1");
     }
 
     function test_validateUserOp_Batch_RevertIf_InvalidTarget() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create a new permission for changeCount transfer and add to session key
         ParamCondition[] memory countConditions = new ParamCondition[](1);
         countConditions[0] =
@@ -1280,7 +1313,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: countConditions
         });
-        skv.addPermission(sessionKey.pub, countPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, countPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](2);
         // Set up execution validations for multiTypeCall and changeCount functions
@@ -1298,7 +1331,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             callData: countData
         });
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
 
         // Expect the operation to revert due to signature error (invalid target)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
@@ -1309,7 +1342,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_Batch_RevertIf_InvalidFunctionSelector() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         // Set up execution validations for invalid function
@@ -1320,7 +1353,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(counter2), value: 0, callData: invalidData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (invalid function selector)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Attempt to execute the user operations
@@ -1350,7 +1383,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: conditions
         });
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         // Set up execution validation parameters
@@ -1359,7 +1392,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         bytes memory callData = abi.encodeWithSelector(TestCounter.multiTypeCall.selector, alice.pub, 4, true);
         // Set up a single user operation
         PackedUserOperation memory op =
-            _setupSingleUserOp(address(skv), address(counter1), 0, callData, evs, sessionKey);
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), address(counter1), 0, callData, evs, sessionKey);
         // Expect the operation to revert due to signature error (session key not yet active)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Attempt to execute the user operation
@@ -1369,7 +1402,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_validateUserOp_RevertIf_SessionKeyExpired() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Move the block timestamp past the expiration time
         vm.warp(block.timestamp + 1 days + 1);
         // Create an array of execution validations
@@ -1380,7 +1413,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         bytes memory callData = abi.encodeWithSelector(TestCounter.multiTypeCall.selector, alice.pub, 4, true);
         // Set up a single user operation
         PackedUserOperation memory op =
-            _setupSingleUserOp(address(skv), address(counter1), 0, callData, evs, sessionKey);
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), address(counter1), 0, callData, evs, sessionKey);
         // Expect the operation to revert due to expired session key
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, "AA22 expired or not due"));
         // Attempt to execute the user operation
@@ -1391,7 +1424,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         vm.deal(eoa.pub, 10 ether);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Move the block timestamp past the expiration time
         vm.warp(block.timestamp + 1 days + 1);
         // Create an array of execution validations
@@ -1402,11 +1435,11 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         bytes memory callData = abi.encodeWithSelector(TestCounter.multiTypeCall.selector, alice.pub, 4, true);
         // Set up a single user operation
         PackedUserOperation memory op =
-            _setupSingleUserOp(address(skv), address(counter1), 0, callData, evs, sessionKey);
+            _setupSingleUserOp(address(SESSION_KEY_VALIDATOR), address(counter1), 0, callData, evs, sessionKey);
         // Empty signature
         op.signature = hex"";
         // Get hash of UserOp
-        bytes32 hash = entrypoint.getUserOpHash(op);
+        bytes32 hash = ENTRYPOINT.getUserOpHash(op);
         op.signature = bytes.concat(_ethSign(hash, eoa), abi.encode(evs));
         // Expect the operation to revert due to expired session key
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
@@ -1466,14 +1499,14 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         ExecutionValidation memory ev = _getExecutionValidation(uint48(1), uint48(3));
         bytes memory callData = abi.encodeWithSelector(TestCounter.multiTypeCall.selector, alice.pub, 4, true);
         // Test valid permission
-        bool result = harness.exposed_validatePermission(address(scw), sd, ev, address(counter1), 0, callData);
+        bool result = harness.exposed_validatePermission(address(SCW), sd, ev, address(counter1), 0, callData);
         assertTrue(result, "Permission should be valid");
         // Test invalid target
-        result = harness.exposed_validatePermission(address(scw), sd, ev, address(counter2), 0, callData);
+        result = harness.exposed_validatePermission(address(SCW), sd, ev, address(counter2), 0, callData);
         assertFalse(result, "Permission should be invalid due to wrong target");
         // Test not compliance with ComparisonRule
         callData = abi.encodeWithSelector(TestCounter.multiTypeCall.selector, alice.pub, 6, true);
-        result = harness.exposed_validatePermission(address(scw), sd, ev, address(counter1), 0, callData);
+        result = harness.exposed_validatePermission(address(SCW), sd, ev, address(counter1), 0, callData);
         assertFalse(result, "Permission should be invalid due to exceeded spending limit");
         // Test native transfer
         ParamCondition[] memory nativeConditions = new ParamCondition[](1);
@@ -1488,7 +1521,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         harness.addPermission(sessionKey.pub, nativePerm);
         ExecutionValidation memory nativeEv = _getExecutionValidation(uint48(1), uint48(3));
         bytes memory emptyCallData = new bytes(0);
-        result = harness.exposed_validatePermission(address(scw), sd, nativeEv, bob.pub, 13 wei, emptyCallData);
+        result = harness.exposed_validatePermission(address(SCW), sd, nativeEv, bob.pub, 13 wei, emptyCallData);
         assertTrue(result, "Native transfer should be valid");
     }
 
@@ -1518,7 +1551,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         executions[0] = Execution({target: address(counter1), value: 0, callData: callData});
         executions[1] = Execution({target: bob.pub, value: 13 wei, callData: ""});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Call the exposed function to validate session key parameters
         (bool success, uint48 _validAfter, uint48 _validUntil) =
             harness.exposed_validateSessionKeyParams(sessionKey.pub, op, evs);
@@ -1542,9 +1575,9 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
                 ExecutionLib.encodeSingle(alice.pub, 1 wei, "")
             )
         );
-        PackedUserOperation memory op = _createUserOp(address(scw), address(skv));
+        PackedUserOperation memory op = _createUserOp(address(SCW), address(SESSION_KEY_VALIDATOR));
         op.callData = callData;
-        bytes32 hash = entrypoint.getUserOpHash(op);
+        bytes32 hash = ENTRYPOINT.getUserOpHash(op);
         op.signature = _sign(hash, sessionKey);
         // Create execution validation
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
@@ -1634,18 +1667,18 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_batchExecutionERC20() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Mint ERC20 tokens to the wallet
         uint256 mintAmount = 1000 * 10 ** 18; // 1000 tokens
-        usdt.mint(address(scw), mintAmount);
+        USDT.mint(address(SCW), mintAmount);
         // Create permissions for ERC20 approve and transferFrom
         ParamCondition[] memory approveConditions = new ParamCondition[](2);
         approveConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         approveConditions[1] =
             ParamCondition({offset: 36, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(mintAmount)});
         Permission memory approvePerm = Permission({
-            target: address(usdt),
+            target: address(USDT),
             selector: IERC20.approve.selector,
             payableLimit: 0,
             uses: tenUses,
@@ -1653,7 +1686,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         });
         ParamCondition[] memory transferFromConditions = new ParamCondition[](3);
         transferFromConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         transferFromConditions[1] = ParamCondition({
             offset: 36,
             rule: ComparisonRule.EQUAL,
@@ -1662,35 +1695,35 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         transferFromConditions[2] =
             ParamCondition({offset: 68, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(mintAmount)});
         Permission memory transferFromPerm = Permission({
-            target: address(usdt),
+            target: address(USDT),
             selector: IERC20.transferFrom.selector,
             payableLimit: 0,
             uses: tenUses,
             paramConditions: transferFromConditions
         });
-        skv.addPermission(sessionKey.pub, approvePerm);
-        skv.addPermission(sessionKey.pub, transferFromPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, approvePerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, transferFromPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](2);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         evs[1] = _getExecutionValidation(uint48(2), uint48(4));
         // Encode call data for approve and transferFrom functions
         uint256 transferAmount = 500 * 10 ** 18; // 500 tokens
-        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(scw), transferAmount);
+        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(SCW), transferAmount);
         bytes memory transferFromData =
-            abi.encodeWithSelector(IERC20.transferFrom.selector, address(scw), alice.pub, transferAmount);
+            abi.encodeWithSelector(IERC20.transferFrom.selector, address(SCW), alice.pub, transferAmount);
         // Create an array of executions
         Execution[] memory executions = new Execution[](2);
-        executions[0] = Execution({target: address(usdt), value: 0, callData: approveData});
-        executions[1] = Execution({target: address(usdt), value: 0, callData: transferFromData});
+        executions[0] = Execution({target: address(USDT), value: 0, callData: approveData});
+        executions[1] = Execution({target: address(USDT), value: 0, callData: transferFromData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Execute the user operation
         _executeUserOp(op);
         // Verify that the receiver's balance has been updated correctly
         // Alice had starting balance of 100 USDT
-        assertEq(usdt.balanceOf(alice.pub), 100e18 + transferAmount, "Receiver should have received the tokens");
-        assertEq(usdt.balanceOf(address(scw)), mintAmount - transferAmount, "Wallet balance should be reduced");
+        assertEq(USDT.balanceOf(alice.pub), 100e18 + transferAmount, "Receiver should have received the tokens");
+        assertEq(USDT.balanceOf(address(SCW)), mintAmount - transferAmount, "Wallet balance should be reduced");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1699,64 +1732,64 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV2_swapExactTokensForTokens() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV2), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(UNISWAP_V2), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV2), type(uint256).max);
+        DAI.approve(address(UNISWAP_V2), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         ParamCondition[] memory swapConditions = new ParamCondition[](5);
         swapConditions[0] =
             ParamCondition({offset: 4, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(10e18))});
         swapConditions[1] =
             ParamCondition({offset: 36, rule: ComparisonRule.GREATER_THAN_OR_EQUAL, value: bytes32(uint256(10e18))});
         swapConditions[2] =
-            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[3] =
-            ParamCondition({offset: 228, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 228, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[4] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         Permission memory swapPerm = Permission({
-            target: address(uniswapV2),
+            target: address(UNISWAP_V2),
             selector: TestUniswapV2.swapExactTokensForTokens.selector,
             payableLimit: 0,
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         address[] memory paths = new address[](2);
-        paths[0] = address(dai);
-        paths[1] = address(link);
+        paths[0] = address(DAI);
+        paths[1] = address(LINK);
         bytes memory callData = abi.encodeWithSelector(
-            TestUniswapV2.swapExactTokensForTokens.selector, 10e18, 10e18, paths, address(scw), block.timestamp + 1000
+            TestUniswapV2.swapExactTokensForTokens.selector, 10e18, 10e18, paths, address(SCW), block.timestamp + 1000
         );
         // Create an array of executions
         Execution[] memory executions = new Execution[](1);
-        executions[0] = Execution({target: address(uniswapV2), value: 0, callData: callData});
+        executions[0] = Execution({target: address(UNISWAP_V2), value: 0, callData: callData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         vm.expectEmit(false, false, false, true);
-        emit MockUniswapExchangeEvent(10e18, 11e18, address(dai), address(link));
+        emit MockUniswapExchangeEvent(10e18, 11e18, address(DAI), address(LINK));
         // Execute the user operation
         _executeUserOp(op);
-        assertEq(dai.balanceOf(address(scw)), 90e18, "Wallet DAI balance should decrease by 10 ether");
-        assertEq(link.balanceOf(address(scw)), 11e18, "Wallet LINK balance should increase by 11 ether");
+        assertEq(DAI.balanceOf(address(SCW)), 90e18, "Wallet DAI balance should decrease by 10 ether");
+        assertEq(LINK.balanceOf(address(SCW)), 11e18, "Wallet LINK balance should increase by 11 ether");
     }
 
     function test_uniswapV2_swapExactTokensForTokens_RevertIf_IncorrectAmountIn() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV2), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(UNISWAP_V2), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV2), type(uint256).max);
+        DAI.approve(address(UNISWAP_V2), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         ParamCondition[] memory swapConditions = new ParamCondition[](5);
         // Should fail on this condition
         swapConditions[0] =
@@ -1764,40 +1797,40 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         swapConditions[1] =
             ParamCondition({offset: 36, rule: ComparisonRule.GREATER_THAN_OR_EQUAL, value: bytes32(uint256(10e18))});
         swapConditions[2] =
-            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[3] =
-            ParamCondition({offset: 228, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 228, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[4] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         Permission memory swapPerm = Permission({
-            target: address(uniswapV2),
+            target: address(UNISWAP_V2),
             selector: TestUniswapV2.swapExactTokensForTokens.selector,
             payableLimit: 0,
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         address[] memory paths = new address[](2);
-        paths[0] = address(dai);
-        paths[1] = address(link);
+        paths[0] = address(DAI);
+        paths[1] = address(LINK);
         bytes memory callData = abi.encodeWithSelector(
             TestUniswapV2.swapExactTokensForTokens.selector,
             // Invalid amountIn value
             11e18,
             10e18,
             paths,
-            address(scw),
+            address(SCW),
             block.timestamp + 1000
         );
         // Create an array of executions
         Execution[] memory executions = new Execution[](1);
-        executions[0] = Execution({target: address(uniswapV2), value: 0, callData: callData});
+        executions[0] = Execution({target: address(UNISWAP_V2), value: 0, callData: callData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (invalid amountIn)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -1806,13 +1839,13 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV2_swapExactTokensForTokens_RevertIf_IncorrectAmountOut() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV2), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(UNISWAP_V2), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV2), type(uint256).max);
+        DAI.approve(address(UNISWAP_V2), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         ParamCondition[] memory swapConditions = new ParamCondition[](5);
         swapConditions[0] =
             ParamCondition({offset: 4, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(10e18))});
@@ -1820,40 +1853,40 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         swapConditions[1] =
             ParamCondition({offset: 36, rule: ComparisonRule.GREATER_THAN_OR_EQUAL, value: bytes32(uint256(10e18))});
         swapConditions[2] =
-            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[3] =
-            ParamCondition({offset: 228, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 228, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[4] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         Permission memory swapPerm = Permission({
-            target: address(uniswapV2),
+            target: address(UNISWAP_V2),
             selector: TestUniswapV2.swapExactTokensForTokens.selector,
             payableLimit: 0,
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         address[] memory paths = new address[](2);
-        paths[0] = address(dai);
-        paths[1] = address(link);
+        paths[0] = address(DAI);
+        paths[1] = address(LINK);
         bytes memory swapData = abi.encodeWithSelector(
             TestUniswapV2.swapExactTokensForTokens.selector,
             11e18,
             // Invalid amountIn value
             9e18,
             paths,
-            address(scw),
+            address(SCW),
             block.timestamp + 1000
         );
         // Create an array of executions
         Execution[] memory executions = new Execution[](1);
-        executions[0] = Execution({target: address(uniswapV2), value: 0, callData: swapData});
+        executions[0] = Execution({target: address(UNISWAP_V2), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (invalid amountIn)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -1862,13 +1895,13 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV2_swapExactTokensForTokens_RevertIf_incorrectFirstPath() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV2), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(UNISWAP_V2), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV2), type(uint256).max);
+        DAI.approve(address(UNISWAP_V2), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         ParamCondition[] memory swapConditions = new ParamCondition[](5);
         swapConditions[0] =
             ParamCondition({offset: 4, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(10e18))});
@@ -1876,41 +1909,41 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             ParamCondition({offset: 36, rule: ComparisonRule.GREATER_THAN_OR_EQUAL, value: bytes32(uint256(10e18))});
         // Should fail on this condition
         swapConditions[2] =
-            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[3] =
-            ParamCondition({offset: 228, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 228, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[4] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         Permission memory swapPerm = Permission({
-            target: address(uniswapV2),
+            target: address(UNISWAP_V2),
             selector: TestUniswapV2.swapExactTokensForTokens.selector,
             payableLimit: 0,
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         address[] memory paths = new address[](2);
         // Add invalid first path address
-        paths[0] = address(weth);
-        paths[1] = address(link);
+        paths[0] = address(WETH);
+        paths[1] = address(LINK);
         bytes memory swapData = abi.encodeWithSelector(
             TestUniswapV2.swapExactTokensForTokens.selector,
             11e18,
             9e18,
             // Invalid first path address
             paths,
-            address(scw),
+            address(SCW),
             block.timestamp + 1000
         );
         // Create an array of executions
         Execution[] memory executions = new Execution[](1);
-        executions[0] = Execution({target: address(uniswapV2), value: 0, callData: swapData});
+        executions[0] = Execution({target: address(UNISWAP_V2), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (invalid amountIn)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -1919,55 +1952,55 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV2_swapExactTokensForTokens_RevertIf_IncorrectSecondPath() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV2), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(UNISWAP_V2), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV2), type(uint256).max);
+        DAI.approve(address(UNISWAP_V2), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         ParamCondition[] memory swapConditions = new ParamCondition[](5);
         swapConditions[0] =
             ParamCondition({offset: 4, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(10e18))});
         swapConditions[1] =
             ParamCondition({offset: 36, rule: ComparisonRule.GREATER_THAN_OR_EQUAL, value: bytes32(uint256(10e18))});
         swapConditions[2] =
-            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         // Should fail on this condition
         swapConditions[3] =
-            ParamCondition({offset: 228, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 228, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[4] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         Permission memory swapPerm = Permission({
-            target: address(uniswapV2),
+            target: address(UNISWAP_V2),
             selector: TestUniswapV2.swapExactTokensForTokens.selector,
             payableLimit: 0,
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         address[] memory paths = new address[](2);
-        paths[0] = address(dai);
+        paths[0] = address(DAI);
         // Add invalid second path address
-        paths[1] = address(dai);
+        paths[1] = address(DAI);
         bytes memory swapData = abi.encodeWithSelector(
             TestUniswapV2.swapExactTokensForTokens.selector,
             11e18,
             9e18,
             // Invalid second path address
             paths,
-            address(scw),
+            address(SCW),
             block.timestamp + 1000
         );
         // Create an array of executions
         Execution[] memory executions = new Execution[](1);
-        executions[0] = Execution({target: address(uniswapV2), value: 0, callData: swapData});
+        executions[0] = Execution({target: address(UNISWAP_V2), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (invalid amountIn)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -1976,41 +2009,41 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV2_swapExactTokensForTokens_RevertIf_IncorrectToAddress() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV2), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(UNISWAP_V2), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV2), type(uint256).max);
+        DAI.approve(address(UNISWAP_V2), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         ParamCondition[] memory swapConditions = new ParamCondition[](5);
         swapConditions[0] =
             ParamCondition({offset: 4, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(10e18))});
         swapConditions[1] =
             ParamCondition({offset: 36, rule: ComparisonRule.GREATER_THAN_OR_EQUAL, value: bytes32(uint256(10e18))});
         swapConditions[2] =
-            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[3] =
-            ParamCondition({offset: 228, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 228, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         // Should fail on this condition
         swapConditions[4] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         Permission memory swapPerm = Permission({
-            target: address(uniswapV2),
+            target: address(UNISWAP_V2),
             selector: TestUniswapV2.swapExactTokensForTokens.selector,
             payableLimit: 0,
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         address[] memory paths = new address[](2);
-        paths[0] = address(dai);
+        paths[0] = address(DAI);
         // Add invalid second path address
-        paths[1] = address(dai);
+        paths[1] = address(DAI);
         bytes memory swapData = abi.encodeWithSelector(
             TestUniswapV2.swapExactTokensForTokens.selector,
             11e18,
@@ -2022,9 +2055,9 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         );
         // Create an array of executions
         Execution[] memory executions = new Execution[](1);
-        executions[0] = Execution({target: address(uniswapV2), value: 0, callData: swapData});
+        executions[0] = Execution({target: address(UNISWAP_V2), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (invalid amountIn)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2033,92 +2066,92 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV2_swapExactETHForTokens() public validatorInstalled {
         // Swap ETH for WETH
-        weth.deposit{value: 10 ether}();
+        WETH.deposit{value: 10 ether}();
         // Approve Uniswap to spend tokens
-        weth.approve(address(uniswapV2), type(uint256).max);
+        WETH.approve(address(UNISWAP_V2), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         ParamCondition[] memory swapConditions = new ParamCondition[](4);
         swapConditions[0] =
             ParamCondition({offset: 4, rule: ComparisonRule.GREATER_THAN_OR_EQUAL, value: bytes32(uint256(10 ether))});
         swapConditions[1] =
-            ParamCondition({offset: 164, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(weth))))});
+            ParamCondition({offset: 164, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(WETH))))});
         swapConditions[2] =
-            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[3] =
-            ParamCondition({offset: 68, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 68, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         Permission memory swapPerm = Permission({
-            target: address(uniswapV2),
+            target: address(UNISWAP_V2),
             selector: TestUniswapV2.swapExactETHForTokens.selector,
             payableLimit: 10 ether,
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         address[] memory paths = new address[](2);
-        paths[0] = address(weth);
-        paths[1] = address(dai);
+        paths[0] = address(WETH);
+        paths[1] = address(DAI);
         bytes memory swapData = abi.encodeWithSelector(
-            TestUniswapV2.swapExactETHForTokens.selector, 10 ether, paths, address(scw), block.timestamp + 1000
+            TestUniswapV2.swapExactETHForTokens.selector, 10 ether, paths, address(SCW), block.timestamp + 1000
         );
         // Create an array of executions
         Execution[] memory executions = new Execution[](1);
-        executions[0] = Execution({target: address(uniswapV2), value: 10 ether, callData: swapData});
+        executions[0] = Execution({target: address(UNISWAP_V2), value: 10 ether, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         vm.expectEmit(false, false, false, true);
-        emit MockUniswapExchangeEvent(10 ether, 11e18, address(weth), address(dai));
+        emit MockUniswapExchangeEvent(10 ether, 11e18, address(WETH), address(DAI));
         // Execute the user operation
         _executeUserOp(op);
-        assertEq(weth.balanceOf(address(scw)), 10 ether, "Wallet WETH balance should decrease by 10 ether");
-        assertEq(dai.balanceOf(address(scw)), 11e18, "Wallet LINK balance should increase by 11 ether");
+        assertEq(WETH.balanceOf(address(SCW)), 10 ether, "Wallet WETH balance should decrease by 10 ether");
+        assertEq(DAI.balanceOf(address(SCW)), 11e18, "Wallet LINK balance should increase by 11 ether");
     }
 
     function test_uniswapV2_swapExactETHForTokens_RevertIf_ExceedsPayableLimit() public validatorInstalled {
         // Swap ETH for WETH
-        weth.deposit{value: 10 ether}();
+        WETH.deposit{value: 10 ether}();
         // Approve Uniswap to spend tokens
-        weth.approve(address(uniswapV2), type(uint256).max);
+        WETH.approve(address(UNISWAP_V2), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         ParamCondition[] memory swapConditions = new ParamCondition[](4);
         swapConditions[0] =
             ParamCondition({offset: 4, rule: ComparisonRule.GREATER_THAN_OR_EQUAL, value: bytes32(uint256(10 ether))});
         swapConditions[1] =
-            ParamCondition({offset: 164, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(weth))))});
+            ParamCondition({offset: 164, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(WETH))))});
         swapConditions[2] =
-            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[3] =
-            ParamCondition({offset: 68, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 68, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         Permission memory swapPerm = Permission({
-            target: address(uniswapV2),
+            target: address(UNISWAP_V2),
             selector: TestUniswapV2.swapExactETHForTokens.selector,
             payableLimit: 10 ether,
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         address[] memory paths = new address[](2);
-        paths[0] = address(weth);
-        paths[1] = address(dai);
+        paths[0] = address(WETH);
+        paths[1] = address(DAI);
         bytes memory swapData = abi.encodeWithSelector(
-            TestUniswapV2.swapExactETHForTokens.selector, 10 ether, paths, address(scw), block.timestamp + 1000
+            TestUniswapV2.swapExactETHForTokens.selector, 10 ether, paths, address(SCW), block.timestamp + 1000
         );
         // Create an array of executions with payable WETH value over limit set
         Execution[] memory executions = new Execution[](1);
-        executions[0] = Execution({target: address(uniswapV2), value: 11 ether, callData: swapData});
+        executions[0] = Execution({target: address(UNISWAP_V2), value: 11 ether, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (exceed payable limit)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2127,50 +2160,50 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV2_swapExactETHForTokens_RevertIf_IncorrectAmountOut() public validatorInstalled {
         // Swap ETH for WETH
-        weth.deposit{value: 10 ether}();
+        WETH.deposit{value: 10 ether}();
         // Approve Uniswap to spend tokens
-        weth.approve(address(uniswapV2), type(uint256).max);
+        WETH.approve(address(UNISWAP_V2), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         ParamCondition[] memory swapConditions = new ParamCondition[](4);
         // Should fail on this condition
         swapConditions[0] =
             ParamCondition({offset: 4, rule: ComparisonRule.GREATER_THAN_OR_EQUAL, value: bytes32(uint256(10 ether))});
         swapConditions[1] =
-            ParamCondition({offset: 164, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(weth))))});
+            ParamCondition({offset: 164, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(WETH))))});
         swapConditions[2] =
-            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[3] =
-            ParamCondition({offset: 68, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 68, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         Permission memory swapPerm = Permission({
-            target: address(uniswapV2),
+            target: address(UNISWAP_V2),
             selector: TestUniswapV2.swapExactETHForTokens.selector,
             payableLimit: 10 ether,
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         address[] memory paths = new address[](2);
-        paths[0] = address(weth);
-        paths[1] = address(dai);
+        paths[0] = address(WETH);
+        paths[1] = address(DAI);
         bytes memory swapData = abi.encodeWithSelector(
             TestUniswapV2.swapExactETHForTokens.selector,
             // Incorrect amountOut
             9 ether,
             paths,
-            address(scw),
+            address(SCW),
             block.timestamp + 1000
         );
         // Create an array of executions with payable WETH value over limit set
         Execution[] memory executions = new Execution[](1);
-        executions[0] = Execution({target: address(uniswapV2), value: 10 ether, callData: swapData});
+        executions[0] = Execution({target: address(UNISWAP_V2), value: 10 ether, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (invalid amountOut)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2179,46 +2212,46 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV2_swapExactETHForTokens_RevertIf_IncorrectPath() public validatorInstalled {
         // Swap ETH for WETH
-        weth.deposit{value: 10 ether}();
+        WETH.deposit{value: 10 ether}();
         // Approve Uniswap to spend tokens
-        weth.approve(address(uniswapV2), type(uint256).max);
+        WETH.approve(address(UNISWAP_V2), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         ParamCondition[] memory swapConditions = new ParamCondition[](4);
         swapConditions[0] =
             ParamCondition({offset: 4, rule: ComparisonRule.GREATER_THAN_OR_EQUAL, value: bytes32(uint256(10 ether))});
         swapConditions[1] =
-            ParamCondition({offset: 164, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(weth))))});
+            ParamCondition({offset: 164, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(WETH))))});
         // Should fail on this condition
         swapConditions[2] =
-            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[3] =
-            ParamCondition({offset: 68, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 68, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         Permission memory swapPerm = Permission({
-            target: address(uniswapV2),
+            target: address(UNISWAP_V2),
             selector: TestUniswapV2.swapExactETHForTokens.selector,
             payableLimit: 10 ether,
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         address[] memory paths = new address[](2);
-        paths[0] = address(weth);
+        paths[0] = address(WETH);
         // Incorrect value for address path
-        paths[1] = address(weth);
+        paths[1] = address(WETH);
         bytes memory swapData = abi.encodeWithSelector(
-            TestUniswapV2.swapExactETHForTokens.selector, 10 ether, paths, address(scw), block.timestamp + 1000
+            TestUniswapV2.swapExactETHForTokens.selector, 10 ether, paths, address(SCW), block.timestamp + 1000
         );
         // Create an array of executions with payable WETH value over limit set
         Execution[] memory executions = new Execution[](1);
-        executions[0] = Execution({target: address(uniswapV2), value: 10 ether, callData: swapData});
+        executions[0] = Execution({target: address(UNISWAP_V2), value: 10 ether, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect path)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2227,37 +2260,37 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV2_swapExactETHForTokens_RevertIf_IncorrectToAddress() public validatorInstalled {
         // Swap ETH for WETH
-        weth.deposit{value: 10 ether}();
+        WETH.deposit{value: 10 ether}();
         // Approve Uniswap to spend tokens
-        weth.approve(address(uniswapV2), type(uint256).max);
+        WETH.approve(address(UNISWAP_V2), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         ParamCondition[] memory swapConditions = new ParamCondition[](4);
         swapConditions[0] =
             ParamCondition({offset: 4, rule: ComparisonRule.GREATER_THAN_OR_EQUAL, value: bytes32(uint256(10 ether))});
         swapConditions[1] =
-            ParamCondition({offset: 164, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(weth))))});
+            ParamCondition({offset: 164, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(WETH))))});
         swapConditions[2] =
-            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 196, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         // Should fail on this condition
         swapConditions[3] =
-            ParamCondition({offset: 68, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 68, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         Permission memory swapPerm = Permission({
-            target: address(uniswapV2),
+            target: address(UNISWAP_V2),
             selector: TestUniswapV2.swapExactETHForTokens.selector,
             payableLimit: 10 ether,
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         address[] memory paths = new address[](2);
-        paths[0] = address(weth);
-        paths[1] = address(dai);
+        paths[0] = address(WETH);
+        paths[1] = address(DAI);
         bytes memory swapData = abi.encodeWithSelector(
             TestUniswapV2.swapExactETHForTokens.selector,
             10 ether,
@@ -2268,9 +2301,9 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         );
         // Create an array of executions with payable WETH value over limit set
         Execution[] memory executions = new Execution[](1);
-        executions[0] = Execution({target: address(uniswapV2), value: 10 ether, callData: swapData});
+        executions[0] = Execution({target: address(UNISWAP_V2), value: 10 ether, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect to address)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2283,26 +2316,26 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV3_exactOutputSingle() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[2] = ParamCondition({
             offset: 68,
             rule: ComparisonRule.LESS_THAN_OR_EQUAL,
             value: bytes32(uint256(uint160(uint24(5000)))) // 0.5%
         });
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(10e18))});
         swapConditions[5] =
@@ -2314,16 +2347,16 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactOutputSingleParams memory params = TestUniswapV3.ExactOutputSingleParams({
-            tokenIn: address(dai),
-            tokenOut: address(link),
+            tokenIn: address(DAI),
+            tokenOut: address(LINK),
             fee: 3000, // 0.3%
-            recipient: address(scw),
+            recipient: address(SCW),
             deadline: block.timestamp + 1000,
             amountOut: 10e18,
             amountInMaximum: 11e18,
@@ -2334,38 +2367,38 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         vm.expectEmit(false, false, false, true);
-        emit MockUniswapExchangeEvent(11e18 - 5, 10e18, address(dai), address(link));
+        emit MockUniswapExchangeEvent(11e18 - 5, 10e18, address(DAI), address(LINK));
         // Execute the user operation
         _executeUserOp(op);
-        assertEq(dai.balanceOf(address(scw)), 89e18 + 5, "Wallet DAI balance should decrease by 10e18 + 5");
-        assertEq(link.balanceOf(address(scw)), 10e18, "Wallet LINK balance should increase by 10e18");
+        assertEq(DAI.balanceOf(address(SCW)), 89e18 + 5, "Wallet DAI balance should decrease by 10e18 + 5");
+        assertEq(LINK.balanceOf(address(SCW)), 10e18, "Wallet LINK balance should increase by 10e18");
     }
 
     function test_uniswapV3_exactOutputSingle_RevertIf_IncorrectTokenIn() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         // Should fail on this condition
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[2] = ParamCondition({
             offset: 68,
             rule: ComparisonRule.LESS_THAN_OR_EQUAL,
             value: bytes32(uint256(uint160(uint24(5000)))) // 0.5%
         });
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(10 ether))});
         swapConditions[5] =
@@ -2377,17 +2410,17 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactOutputSingleParams memory params = TestUniswapV3.ExactOutputSingleParams({
             // Invalid tokenIn
-            tokenIn: address(weth),
-            tokenOut: address(link),
+            tokenIn: address(WETH),
+            tokenOut: address(LINK),
             fee: 3000, // 0.3%
-            recipient: address(scw),
+            recipient: address(SCW),
             deadline: block.timestamp + 1000,
             amountOut: 10e18,
             amountInMaximum: 11 ether,
@@ -2398,7 +2431,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect tokenIn)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2407,27 +2440,27 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV3_exactOutputSingle_RevertIf_incorrectTokenOut() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         // Should fail on this condition
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[2] = ParamCondition({
             offset: 68,
             rule: ComparisonRule.LESS_THAN_OR_EQUAL,
             value: bytes32(uint256(uint160(uint24(5000)))) // 0.5%
         });
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(10 ether))});
         swapConditions[5] =
@@ -2439,17 +2472,17 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactOutputSingleParams memory params = TestUniswapV3.ExactOutputSingleParams({
-            tokenIn: address(dai),
+            tokenIn: address(DAI),
             // Invalid tokenOut
-            tokenOut: address(weth),
+            tokenOut: address(WETH),
             fee: 3000, // 0.3%
-            recipient: address(scw),
+            recipient: address(SCW),
             deadline: block.timestamp + 1000,
             amountOut: 10 ether,
             amountInMaximum: 11e18,
@@ -2460,7 +2493,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect tokenOut)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2469,19 +2502,19 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV3_exactOutputSingle_RevertIf_IncorrectFee() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         // Should fail on this condition
         swapConditions[2] = ParamCondition({
             offset: 68,
@@ -2489,7 +2522,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             value: bytes32(uint256(uint160(uint24(5000)))) // 0.5%
         });
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(10 ether))});
         swapConditions[5] =
@@ -2501,16 +2534,16 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactOutputSingleParams memory params = TestUniswapV3.ExactOutputSingleParams({
-            tokenIn: address(dai),
-            tokenOut: address(weth),
+            tokenIn: address(DAI),
+            tokenOut: address(WETH),
             fee: 5100, // 0.51%
-            recipient: address(scw),
+            recipient: address(SCW),
             deadline: block.timestamp + 1000,
             amountOut: 10 ether,
             amountInMaximum: 11e18,
@@ -2521,7 +2554,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect fee)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2530,19 +2563,19 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV3_exactOutputSingle_RevertIf_IncorrectRecipient() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[2] = ParamCondition({
             offset: 68,
             rule: ComparisonRule.LESS_THAN_OR_EQUAL,
@@ -2550,7 +2583,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         });
         // Should fail on this condition
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(10 ether))});
         swapConditions[5] =
@@ -2562,14 +2595,14 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactOutputSingleParams memory params = TestUniswapV3.ExactOutputSingleParams({
-            tokenIn: address(dai),
-            tokenOut: address(weth),
+            tokenIn: address(DAI),
+            tokenOut: address(WETH),
             fee: 3000, // 0.3%
             // Invalid recipient
             recipient: alice.pub,
@@ -2583,7 +2616,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect recipient)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2592,26 +2625,26 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV3_exactOutputSingle_RevertIf_IncorrectAmountOut() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[2] = ParamCondition({
             offset: 68,
             rule: ComparisonRule.LESS_THAN_OR_EQUAL,
             value: bytes32(uint256(uint160(uint24(5000)))) // 0.5%
         });
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         // Should fail on this condition
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(10 ether))});
@@ -2624,14 +2657,14 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactOutputSingleParams memory params = TestUniswapV3.ExactOutputSingleParams({
-            tokenIn: address(dai),
-            tokenOut: address(weth),
+            tokenIn: address(DAI),
+            tokenOut: address(WETH),
             fee: 3000, // 0.3%
             recipient: alice.pub,
             deadline: block.timestamp + 1000,
@@ -2645,7 +2678,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect amountOut)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2654,26 +2687,26 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV3_exactOutputSingle_RevertIf_IncorrectAmountInMaximum() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[2] = ParamCondition({
             offset: 68,
             rule: ComparisonRule.LESS_THAN_OR_EQUAL,
             value: bytes32(uint256(uint160(uint24(5000)))) // 0.5%
         });
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(10 ether))});
         // Should fail on this condition
@@ -2686,14 +2719,14 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactOutputSingleParams memory params = TestUniswapV3.ExactOutputSingleParams({
-            tokenIn: address(dai),
-            tokenOut: address(weth),
+            tokenIn: address(DAI),
+            tokenOut: address(WETH),
             fee: 3000, // 0.3%
             recipient: alice.pub,
             deadline: block.timestamp + 1000,
@@ -2707,7 +2740,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect amountInMaximum)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2716,26 +2749,26 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV3_exactInputSingle() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[2] = ParamCondition({
             offset: 68,
             rule: ComparisonRule.LESS_THAN_OR_EQUAL,
             value: bytes32(uint256(uint160(uint24(5000)))) // 0.5%
         });
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(11e18))});
         swapConditions[5] =
@@ -2747,16 +2780,16 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactInputSingleParams memory params = TestUniswapV3.ExactInputSingleParams({
-            tokenIn: address(dai),
-            tokenOut: address(link),
+            tokenIn: address(DAI),
+            tokenOut: address(LINK),
             fee: 3000, // 0.3%
-            recipient: address(scw),
+            recipient: address(SCW),
             deadline: block.timestamp + 1000,
             amountIn: 11e18,
             amountOutMinimum: 10e18,
@@ -2767,38 +2800,38 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         vm.expectEmit(false, false, false, true);
-        emit MockUniswapExchangeEvent(11e18, 10e18 + 5, address(dai), address(link));
+        emit MockUniswapExchangeEvent(11e18, 10e18 + 5, address(DAI), address(LINK));
         // Execute the user operation
         _executeUserOp(op);
-        assertEq(dai.balanceOf(address(scw)), 89e18, "Wallet DAI balance should decrease by 11e18");
-        assertEq(link.balanceOf(address(scw)), 10e18 + 5, "Wallet LINK balance should increase by 10e18 + 5 wei");
+        assertEq(DAI.balanceOf(address(SCW)), 89e18, "Wallet DAI balance should decrease by 11e18");
+        assertEq(LINK.balanceOf(address(SCW)), 10e18 + 5, "Wallet LINK balance should increase by 10e18 + 5 wei");
     }
 
     function test_uniswapV3_exactInputSingle_RevertIf_InvalidTokenIn() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         // Should fail on this condition
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[2] = ParamCondition({
             offset: 68,
             rule: ComparisonRule.LESS_THAN_OR_EQUAL,
             value: bytes32(uint256(uint160(uint24(5000)))) // 0.5%
         });
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(11 ether))});
         swapConditions[5] =
@@ -2810,17 +2843,17 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactInputSingleParams memory params = TestUniswapV3.ExactInputSingleParams({
             // Invalid tokenIn
-            tokenIn: address(weth),
-            tokenOut: address(link),
+            tokenIn: address(WETH),
+            tokenOut: address(LINK),
             fee: 3000, // 0.3%
-            recipient: address(scw),
+            recipient: address(SCW),
             deadline: block.timestamp + 1000,
             amountIn: 11 ether,
             amountOutMinimum: 10e18,
@@ -2831,7 +2864,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect tokenIn)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2840,27 +2873,27 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV3_exactInputSingle_RevertIf_InvalidTokenOut() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         // Should fail on this condition
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[2] = ParamCondition({
             offset: 68,
             rule: ComparisonRule.LESS_THAN_OR_EQUAL,
             value: bytes32(uint256(uint160(uint24(5000)))) // 0.5%
         });
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(11e18))});
         swapConditions[5] =
@@ -2872,17 +2905,17 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactInputSingleParams memory params = TestUniswapV3.ExactInputSingleParams({
-            tokenIn: address(dai),
+            tokenIn: address(DAI),
             // Invalid tokenOut
-            tokenOut: address(dai),
+            tokenOut: address(DAI),
             fee: 3000, // 0.3%
-            recipient: address(scw),
+            recipient: address(SCW),
             deadline: block.timestamp + 1000,
             amountIn: 11e18,
             amountOutMinimum: 10e18,
@@ -2893,7 +2926,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect tokenOut)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2902,19 +2935,19 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV3_exactInputSingle_RevertIf_InvalidFee() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         // Should fail on this condition
         swapConditions[2] = ParamCondition({
             offset: 68,
@@ -2922,7 +2955,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             value: bytes32(uint256(uint160(uint24(5000)))) // 0.5%
         });
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(11e18))});
         swapConditions[5] =
@@ -2934,17 +2967,17 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactInputSingleParams memory params = TestUniswapV3.ExactInputSingleParams({
-            tokenIn: address(dai),
-            tokenOut: address(link),
+            tokenIn: address(DAI),
+            tokenOut: address(LINK),
             // Invalid fee
             fee: 5100, // 0.51%
-            recipient: address(scw),
+            recipient: address(SCW),
             deadline: block.timestamp + 1000,
             amountIn: 11e18,
             amountOutMinimum: 10e18,
@@ -2955,7 +2988,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect fee)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -2964,19 +2997,19 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV3_exactInputSingle_RevertIf_InvalidRecipient() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[2] = ParamCondition({
             offset: 68,
             rule: ComparisonRule.LESS_THAN_OR_EQUAL,
@@ -2984,7 +3017,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         });
         // Should fail on this condition
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(11e18))});
         swapConditions[5] =
@@ -2996,14 +3029,14 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactInputSingleParams memory params = TestUniswapV3.ExactInputSingleParams({
-            tokenIn: address(dai),
-            tokenOut: address(link),
+            tokenIn: address(DAI),
+            tokenOut: address(LINK),
             fee: 3000, // 0.3%
             // Invalid recipient
             recipient: alice.pub,
@@ -3017,7 +3050,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect recipient)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -3026,26 +3059,26 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV3_exactInputSingle_RevertIf_InvalidAmountIn() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[2] = ParamCondition({
             offset: 68,
             rule: ComparisonRule.LESS_THAN_OR_EQUAL,
             value: bytes32(uint256(uint160(uint24(5000)))) // 0.5%
         });
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         // Should fail on this condition
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(11e18))});
@@ -3058,14 +3091,14 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactInputSingleParams memory params = TestUniswapV3.ExactInputSingleParams({
-            tokenIn: address(dai),
-            tokenOut: address(link),
+            tokenIn: address(DAI),
+            tokenOut: address(LINK),
             fee: 3000, // 0.3%
             recipient: alice.pub,
             deadline: block.timestamp + 1000,
@@ -3079,7 +3112,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect amountIn)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -3088,26 +3121,26 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
 
     function test_uniswapV3_exactInputSingle_RevertIf_InvalidAmountOutMinimum() public validatorInstalled {
         // Mint tokens
-        dai.mint(address(scw), 100e18);
-        link.mint(address(uniswapV3), 100e18);
+        DAI.mint(address(SCW), 100e18);
+        LINK.mint(address(uniswapV3), 100e18);
         // Approve Uniswap to spend tokens
-        dai.approve(address(uniswapV3), type(uint256).max);
+        DAI.approve(address(uniswapV3), type(uint256).max);
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         // Set up swap conditions
         ParamCondition[] memory swapConditions = new ParamCondition[](6);
         swapConditions[0] =
-            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(dai))))});
+            ParamCondition({offset: 4, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(DAI))))});
         swapConditions[1] =
-            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(link))))});
+            ParamCondition({offset: 36, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(LINK))))});
         swapConditions[2] = ParamCondition({
             offset: 68,
             rule: ComparisonRule.LESS_THAN_OR_EQUAL,
             value: bytes32(uint256(uint160(uint24(5000)))) // 0.5%
         });
         swapConditions[3] =
-            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(scw))))});
+            ParamCondition({offset: 100, rule: ComparisonRule.EQUAL, value: bytes32(uint256(uint160(address(SCW))))});
         swapConditions[4] =
             ParamCondition({offset: 164, rule: ComparisonRule.LESS_THAN_OR_EQUAL, value: bytes32(uint256(11e18))});
         // Should fail on this condition
@@ -3120,14 +3153,14 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: swapConditions
         });
-        skv.addPermission(sessionKey.pub, swapPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, swapPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
         // Encode call data for swap
         TestUniswapV3.ExactInputSingleParams memory params = TestUniswapV3.ExactInputSingleParams({
-            tokenIn: address(dai),
-            tokenOut: address(link),
+            tokenIn: address(DAI),
+            tokenOut: address(LINK),
             fee: 3000, // 0.3%
             recipient: alice.pub,
             deadline: block.timestamp + 1000,
@@ -3141,7 +3174,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(uniswapV3), value: 0, callData: swapData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Expect the operation to revert due to signature error (incorrect amountOutMinimum)
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         // Execute the user operation
@@ -3155,7 +3188,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
     function test_buyingNFT() public validatorInstalled {
         // Set up a session key and permissions
         (SessionData memory sd, Permission[] memory perms) = _getSessionKeyAndPermissions(sessionKey);
-        skv.enableSessionKey(sd, perms);
+        SESSION_KEY_VALIDATOR.enableSessionKey(sd, perms);
         ParamCondition[] memory mintConditions = new ParamCondition[](1);
         mintConditions[0] = ParamCondition({
             offset: 4,
@@ -3169,7 +3202,7 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
             uses: tenUses,
             paramConditions: mintConditions
         });
-        skv.addPermission(sessionKey.pub, mintPerm);
+        SESSION_KEY_VALIDATOR.addPermission(sessionKey.pub, mintPerm);
         // Create an array of execution validations
         ExecutionValidation[] memory evs = new ExecutionValidation[](1);
         evs[0] = _getExecutionValidation(uint48(1), uint48(3));
@@ -3179,17 +3212,17 @@ contract SessionKeyValidator_Concrete_Test is TestUtils {
         Execution[] memory executions = new Execution[](1);
         executions[0] = Execution({target: address(cryptoPunk), value: 0.05 ether, callData: mintData});
         // Set up a batch user operation
-        PackedUserOperation memory op = _setupBatchUserOp(address(skv), executions, evs, sessionKey);
+        PackedUserOperation memory op = _setupBatchUserOp(address(SESSION_KEY_VALIDATOR), executions, evs, sessionKey);
         // Get initial native balance of wallet
-        uint256 balance = address(scw).balance;
+        uint256 balance = address(SCW).balance;
         // Expect the NFT purchased event to be emitted
         vm.expectEmit(true, true, false, true);
-        emit TestNFTPuchased(address(scw), alice.pub, 1);
+        emit TestNFTPuchased(address(SCW), alice.pub, 1);
         // Execute the user operation
         _executeUserOp(op);
-        // Varify that Alice has been minted NFT and that address(scw) paid for it
+        // Varify that Alice has been minted NFT and that address(SCW) paid for it
         assertEq(cryptoPunk.balanceOf(alice.pub), 1, "Alice should have NFT");
         // Lt as tx cost
-        assertLt(address(scw).balance, balance - 0.05 ether);
+        assertLt(address(SCW).balance, balance - 0.05 ether);
     }
 }

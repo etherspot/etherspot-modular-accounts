@@ -13,6 +13,12 @@ checksum = "c102194147224fa5081c78c88af01ee148ea7d799990d98ebbe043c3fc168006"
 integrity = "5a359d8124f0fc9a454310d86b10f3eff96d4d1d0090bcdd85af9ba3a92d030b"
 
 [[dependencies]]
+name = "excessively-safe-call"
+version = "1.0.0"
+git = "https://github.com/nomad-xyz/ExcessivelySafeCall.git"
+rev = "81cd99ce3e69117d665d7601c330ea03b97acce0"
+
+[[dependencies]]
 name = "forge-std"
 version = "1.9.6"
 url = "https://soldeer-revisions.s3.amazonaws.com/forge-std/1_9_6_01-02-2025_20:49:10_forge-std-1.9.zip"

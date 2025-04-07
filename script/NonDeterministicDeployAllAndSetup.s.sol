@@ -5,22 +5,21 @@ import "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {IEntryPoint} from "ERC4337/interfaces/IEntryPoint.sol";
 import {IStakeManager} from "ERC4337/interfaces/IStakeManager.sol";
-import {Bootstrap} from "ERC7579/utils/Bootstrap.sol";
+import {Bootstrap} from "../src/utils/Bootstrap.sol";
 import {ModularEtherspotWallet} from "../src/wallet/ModularEtherspotWallet.sol";
-import {ModularEtherspotWalletFactory} from "../src/wallet/ModularEtherspotWalletFactory.sol";
+import {ModularEtherspotWalletFactory} from "../src/factory/ModularEtherspotWalletFactory.sol";
 import {MultipleOwnerECDSAValidator} from "../src/modules/validators/MultipleOwnerECDSAValidator.sol";
 
-/**
- * @author Etherspot.
- * @title  NonDeterministicDeployAllAndSetupScript.
- * @dev Non-deterministic deployment script for all modular contracts. Deploys:
- * ModularEtherspotWallet implementation, ModularEtherspotWalletFactory, Bootstrap and MultipleOwnerECDSAValidator.
- * Stakes factory contract with EntryPoint.
- *
- * To run script: forge script script/NonDeterministicDeployAllAndSetup.s.sol:NonDeterministicDeployAllAndSetupScript --broadcast -vvvv --rpc-url <chain name>
- * If error: Failed to get EIP-1559 fees: add --legacy tag
- * For certain chains (currently only mantle and mantle_sepolia): add --skip-simulation tag
- */
+/// @author Etherspot.
+/// @title  NonDeterministicDeployAllAndSetupScript.
+/// @dev Non-deterministic deployment script for all modular contracts. Deploys:
+/// ModularEtherspotWallet implementation, ModularEtherspotWalletFactory, Bootstrap and MultipleOwnerECDSAValidator.
+/// Stakes factory contract with EntryPoint.
+
+/// To run script: forge script script/NonDeterministicDeployAllAndSetup.s.sol:NonDeterministicDeployAllAndSetupScript --broadcast -vvvv --rpc-url <chain name>
+/// If error: Failed to get EIP-1559 fees: add --legacy tag
+/// For certain chains (currently only mantle and mantle_sepolia): add --skip-simulation tag
+
 contract NonDeterministicDeployAllAndSetupScript is Script {
     address public constant ENTRY_POINT_07 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
 
@@ -38,13 +37,17 @@ contract NonDeterministicDeployAllAndSetupScript is Script {
         MultipleOwnerECDSAValidator multipleOwnerECDSAValidator;
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
+
+        /*//////////////////////////////////////////////////////////////
+                            Starting Deployment
+        //////////////////////////////////////////////////////////////*/
         console2.log("Starting non-deterministic deployment sequence...");
 
         /*//////////////////////////////////////////////////////////////
                         Deploy ModularEtherspotWallet
         //////////////////////////////////////////////////////////////*/
         console2.log("Deploying ModularEtherspotWallet implementation...");
-        implementation = new ModularEtherspotWallet();
+        implementation = new ModularEtherspotWallet(entryPoint);
         console2.log("Wallet implementation deployed at address", address(implementation));
 
         /*//////////////////////////////////////////////////////////////

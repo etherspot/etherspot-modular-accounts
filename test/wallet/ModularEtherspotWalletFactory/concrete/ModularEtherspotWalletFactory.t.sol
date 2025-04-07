@@ -2,9 +2,9 @@
 pragma solidity ^0.8.21;
 
 import "forge-std/Test.sol";
-import "ERC7579/test/dependencies/EntryPoint.sol";
-import "ERC7579/test/Bootstrap.t.sol";
-import {ModularEtherspotWalletFactory} from "../../../../src/wallet/ModularEtherspotWalletFactory.sol";
+import "../../../../src/test/dependencies/EntryPoint.sol";
+import "../../../../src/libraries/BootstrapLib.sol";
+import {ModularEtherspotWalletFactory} from "../../../../src/factory/ModularEtherspotWalletFactory.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import {ModularTestBase} from "../../../ModularTestBase.sol";
 
@@ -13,10 +13,7 @@ contract ModularEtherspotWalletFactory_Concrete_Test is ModularTestBase {
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event ModularAccountDeployed(
-        address indexed account,
-        address indexed owner
-    );
+    event ModularAccountDeployed(address indexed account, address indexed owner);
 
     /*//////////////////////////////////////////////////////////////
                                 SETUP
@@ -27,151 +24,85 @@ contract ModularEtherspotWalletFactory_Concrete_Test is ModularTestBase {
     }
 
     function test_setUpState() public {
-        assertEq(address(impl), factory.implementation());
+        assertEq(address(IMPLEMENTATION), FACTORY.implementation());
     }
 
     function test_createAccount_ReturnsAddressIfAlreadyCreated() public {
         // setup account init config
-        BootstrapConfig[] memory validators = makeBootstrapConfig(
-            address(mockVal),
-            hex""
-        );
-        BootstrapConfig[] memory executors = makeBootstrapConfig(
-            address(mockExec),
-            hex""
-        );
-        BootstrapConfig memory hook = _makeBootstrapConfig(address(0), hex"");
-        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(
-            address(0),
-            hex""
-        );
-
+        BootstrapConfig[] memory validators = BootstrapLib._buildArrayConfig(address(MOCK_VALIDATOR), hex"");
+        BootstrapConfig[] memory executors = BootstrapLib._buildArrayConfig(address(MOCK_EXECUTOR), hex"");
+        BootstrapConfig memory hook = BootstrapLib._buildEmptySingleConfig();
+        BootstrapConfig[] memory fallbacks = BootstrapLib._buildEmptyArrayConfig();
         bytes memory initCode = abi.encode(
-            eoa.pub,
-            address(bootstrapSingleton),
-            abi.encodeCall(
-                Bootstrap.initMSA,
-                (validators, executors, hook, fallbacks)
-            )
+            address(BOOTSTRAP),
+            abi.encodeCall(BOOTSTRAP.initializeModularAccount, (validators, executors, hook, fallbacks))
         );
         vm.startPrank(eoa.pub);
         // create account
-        scw = ModularEtherspotWallet(
-            payable(
-                factory.createAccount({salt: TEST_SALT, initCode: initCode})
-            )
+        SCW = ModularEtherspotWallet(
+            payable(FACTORY.createAccount({_owner: eoa.pub, _salt: TEST_SALT, _initCode: initCode}))
         );
         // re run to return created address
         ModularEtherspotWallet dupe = ModularEtherspotWallet(
-            payable(
-                factory.createAccount({salt: TEST_SALT, initCode: initCode})
-            )
+            payable(FACTORY.createAccount({_owner: eoa.pub, _salt: TEST_SALT, _initCode: initCode}))
         );
-        assertEq(address(scw), address(dupe));
+        assertEq(address(SCW), address(dupe));
         vm.stopPrank();
     }
 
     function test_createAccount_EnsureTwoAddressesNotSame() public {
         ModularEtherspotWallet anotherSCW;
-        BootstrapConfig[] memory validators = makeBootstrapConfig(
-            address(mockVal),
-            hex""
-        );
-        BootstrapConfig[] memory executors = makeBootstrapConfig(
-            address(mockExec),
-            hex""
-        );
-        BootstrapConfig memory hook = _makeBootstrapConfig(address(0), hex"");
-        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(
-            address(0),
-            hex""
-        );
+        BootstrapConfig[] memory validators = BootstrapLib._buildArrayConfig(address(MOCK_VALIDATOR), hex"");
+        BootstrapConfig[] memory executors = BootstrapLib._buildArrayConfig(address(MOCK_EXECUTOR), hex"");
+        BootstrapConfig memory hook = BootstrapLib._buildEmptySingleConfig();
+        BootstrapConfig[] memory fallbacks = BootstrapLib._buildEmptyArrayConfig();
         bytes memory initCode = abi.encode(
-            eoa.pub,
-            address(bootstrapSingleton),
-            abi.encodeCall(
-                Bootstrap.initMSA,
-                (validators, executors, hook, fallbacks)
-            )
+            address(BOOTSTRAP),
+            abi.encodeCall(BOOTSTRAP.initializeModularAccount, (validators, executors, hook, fallbacks))
         );
         vm.startPrank(eoa.pub);
         // create account
-        scw = ModularEtherspotWallet(
-            payable(
-                factory.createAccount({salt: TEST_SALT, initCode: initCode})
-            )
+        SCW = ModularEtherspotWallet(
+            payable(FACTORY.createAccount({_owner: eoa.pub, _salt: TEST_SALT, _initCode: initCode}))
         );
         vm.stopPrank();
         vm.startPrank(alice.pub);
         initCode = abi.encode(
-            alice.pub,
-            address(bootstrapSingleton),
-            abi.encodeCall(
-                Bootstrap.initMSA,
-                (validators, executors, hook, fallbacks)
-            )
+            address(BOOTSTRAP),
+            abi.encodeCall(BOOTSTRAP.initializeModularAccount, (validators, executors, hook, fallbacks))
         );
         // create 2nd account
         anotherSCW = ModularEtherspotWallet(
-            payable(
-                factory.createAccount({
-                    salt: bytes32("random.salt"),
-                    initCode: initCode
-                })
-            )
+            payable(FACTORY.createAccount({_owner: alice.pub, _salt: bytes32("random.salt"), _initCode: initCode}))
         );
         vm.stopPrank();
-        assertFalse(address(scw) == address(anotherSCW));
+        assertFalse(address(SCW) == address(anotherSCW));
     }
 
     function test_createAccount_EmitsEventOnlyOnNewCreation() public {
         // setup account init config
-        BootstrapConfig[] memory validators = makeBootstrapConfig(
-            address(mockVal),
-            hex""
-        );
-        BootstrapConfig[] memory executors = makeBootstrapConfig(
-            address(mockExec),
-            hex""
-        );
-        BootstrapConfig memory hook = _makeBootstrapConfig(address(0), hex"");
-        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(
-            address(0),
-            hex""
-        );
+        BootstrapConfig[] memory validators = BootstrapLib._buildArrayConfig(address(MOCK_VALIDATOR), hex"");
+        BootstrapConfig[] memory executors = BootstrapLib._buildArrayConfig(address(MOCK_EXECUTOR), hex"");
+        BootstrapConfig memory hook = BootstrapLib._buildEmptySingleConfig();
+        BootstrapConfig[] memory fallbacks = BootstrapLib._buildEmptyArrayConfig();
         bytes memory initCode = abi.encode(
-            eoa.pub,
-            address(bootstrapSingleton),
-            abi.encodeCall(
-                Bootstrap.initMSA,
-                (validators, executors, hook, fallbacks)
-            )
+            address(BOOTSTRAP),
+            abi.encodeCall(BOOTSTRAP.initializeModularAccount, (validators, executors, hook, fallbacks))
         );
         vm.startPrank(eoa.pub);
-        address expectedAddr = factory.getAddress({
-            salt: TEST_SALT,
-            initcode: initCode
-        });
-        // Should emit event as newly created scw
+        address expectedAddr = FACTORY.getAddress({_salt: TEST_SALT, _initcode: initCode});
+        // Should emit event as newly created SCW
         vm.expectEmit(true, true, true, true);
         emit ModularAccountDeployed(expectedAddr, eoa.pub);
         // create account
-        scw = ModularEtherspotWallet(
-            payable(
-                factory.createAccount({salt: TEST_SALT, initCode: initCode})
-            )
+        SCW = ModularEtherspotWallet(
+            payable(FACTORY.createAccount({_owner: eoa.pub, _salt: TEST_SALT, _initCode: initCode}))
         );
-        assertEq(
-            address(scw),
-            expectedAddr,
-            "Computed wallet address should always equal wallet address created"
-        );
+        assertEq(address(SCW), expectedAddr, "Computed wallet address should always equal wallet address created");
         // Should not emit event if address already exists
         // - Checked using -vvvv stack trace
-        scw = ModularEtherspotWallet(
-            payable(
-                factory.createAccount({salt: TEST_SALT, initCode: initCode})
-            )
+        SCW = ModularEtherspotWallet(
+            payable(FACTORY.createAccount({_owner: eoa.pub, _salt: TEST_SALT, _initCode: initCode}))
         );
         vm.stopPrank();
     }

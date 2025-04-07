@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity ^0.8.27;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
@@ -7,11 +7,7 @@ contract TestERC721 is ERC721 {
     uint256 private _nextTokenId;
     uint256 public immutable PRICE = 0.05 ether;
 
-    event TestNFTPuchased(
-        address indexed buyer,
-        address indexed receiver,
-        uint256 tokenId
-    );
+    event TestNFTPuchased(address indexed buyer, address indexed receiver, uint256 tokenId);
 
     constructor() ERC721("TestNFT", "TNFT") {}
 
