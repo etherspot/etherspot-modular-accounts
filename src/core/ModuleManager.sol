@@ -86,11 +86,19 @@ abstract contract ModuleManager is IModuleManager, EIP712, AccountStorage, ERC77
     /// @dev Compares the code hash against the EIP7702 prefix
     /// @return True if the account was deployed using EIP7702, false otherwise
     function _isEIP7702Account() internal view returns (bool) {
-        bytes32 codeHash;
+        // Get the first 3 bytes of code
+        bytes memory codeStart = new bytes(3);
+        uint256 codeSize;
         assembly {
-            codeHash := extcodehash(address())
+            codeSize := extcodesize(address())
+            if eq(codeSize, 23) { extcodecopy(address(), add(codeStart, 32), 0, 3) }
         }
-        return codeHash == keccak256(abi.encodePacked(EIP7702_PREFIX));
+        // If code size is not 23 bytes, it's not an EIP7702 account
+        if (codeSize != 23) {
+            return false;
+        }
+        // Check if the first 3 bytes match the EIP7702 prefix
+        return keccak256(codeStart) == keccak256(abi.encodePacked(EIP7702_PREFIX));
     }
 
     /*//////////////////////////////////////////////////////////////

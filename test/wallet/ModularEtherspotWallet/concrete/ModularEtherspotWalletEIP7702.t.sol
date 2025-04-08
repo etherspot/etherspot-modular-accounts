@@ -16,10 +16,12 @@ import {
     MODULE_TYPE_VALIDATOR
 } from "../../../../src/types/Constants.sol";
 import {ModePayload} from "../../../../src/types/Types.sol";
+import {EIP7702_PREFIX} from "../../../../src/types/Constants.sol";
 import {MockTarget} from "../../../../src/test/mocks/MockTarget.sol";
 import {MockDelegateTarget} from "../../../../src/test/mocks/MockDelegateTarget.sol";
 import "../../../../src/test/dependencies/EntryPoint.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
+import {ModularEtherspotWalletHarness} from "../../../harnesses/ModularEtherspotWalletHarness.sol";
 import {ModularEtherspotWalletTestUtils as TestUtils} from "../utils/ModularEtherspotWalletTestUtils.sol";
 
 contract ModularEtherspotWalletEIP7702Test is TestUtils {
@@ -467,5 +469,11 @@ contract ModularEtherspotWalletEIP7702Test is TestUtils {
         );
         assertTrue(ModularEtherspotWallet(acc7702).isModuleInstalled(MODULE_TYPE_EXECUTOR, address(MOCK_EXECUTOR), ""));
         assertTrue(ModularEtherspotWallet(acc7702).isModuleInstalled(MODULE_TYPE_HOOK, address(MOCK_HOOK), ""));
+    }
+
+    function test_isEIP7702() public {
+        ModularEtherspotWalletHarness harness = new ModularEtherspotWalletHarness(ENTRYPOINT);
+        vm.etch(eoa7702.pub, abi.encodePacked(EIP7702_PREFIX, bytes20(address(harness))));
+        assertTrue(ModularEtherspotWalletHarness(eoa7702.pub).exposed_isEIP7702Account());
     }
 }
