@@ -20,4 +20,4 @@ lcov.info
 coverage/
 
 # Soldeer
-dependencies
+/dependencies
