@@ -569,4 +569,29 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         _executeUserOp(op);
         assertEq(RESOURCE_LOCK_VALIDATOR.getNonce(address(SCW)), currentNonce + 1);
     }
+
+    function test_validateUserOp_RevertIf_NonceMismatch() public withRequiredModules {
+        uint256 currentNonce = RESOURCE_LOCK_VALIDATOR.getNonce(address(SCW));
+        // Create UserOp with ResourceLock
+        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpWithResourceLock(address(SCW), sessionKey, true);
+        // Sign merkle root directly
+        bytes memory sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        _executeUserOp(op);
+        // Expect nonce to now be 1
+        assertEq(RESOURCE_LOCK_VALIDATOR.getNonce(address(SCW)), currentNonce + 1);
+        // Perform the same transaction again with nonce of 0
+        // Create UserOp with ResourceLock
+        (op,, proof, merkleRoot) = _createUserOpWithResourceLock(address(SCW), sessionKey, true);
+        // Sign merkle root directly
+        sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        // Expect revert as nonce provided is 0 but validator expects 1
+        _toRevert(
+            IEntryPoint.FailedOpWithRevert.selector,
+            abi.encode(0, AA23, abi.encodeWithSelector(ResourceLockValidator.RLV_InvalidNonce.selector, 1, 0))
+        );
+        _executeUserOp(op);
+    }
 }

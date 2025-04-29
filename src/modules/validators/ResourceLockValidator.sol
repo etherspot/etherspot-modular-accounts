@@ -63,6 +63,9 @@ contract ResourceLockValidator is IResourceLockValidator {
     /// @notice Thrown when a non-single call type is used
     error RLV_OnlyCallTypeSingle();
 
+    /// @notice Thrown when a nonce missmatch occurs
+    error RLV_InvalidNonce(uint256 expectedNonce, uint256 receivedNonce);
+
     /*//////////////////////////////////////////////////////////////
                         PUBLIC/EXTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -267,6 +270,11 @@ contract ResourceLockValidator is IResourceLockValidator {
                     td[i] = _getSingleTokenData(execData, 132 + arrayOffset + (i * 64));
                 }
                 address scw = address(uint160(uint256(bytes32(execData[132:164]))));
+                uint256 expectedNonce = validatorStorage[scw].nonce;
+                uint256 receivedNonce = uint256(bytes32(execData[292:324]));
+                if (receivedNonce != expectedNonce) {
+                    revert RLV_InvalidNonce(expectedNonce, receivedNonce);
+                }
                 return ResourceLock({
                     chainId: uint256(bytes32(execData[100:132])),
                     smartWallet: scw,
