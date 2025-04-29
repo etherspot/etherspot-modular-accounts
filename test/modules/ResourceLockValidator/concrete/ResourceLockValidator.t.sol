@@ -557,4 +557,16 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         _executeUserOp(op);
     }
+
+    function test_validateUserOp_NonceShouldIncrementOnValidMerkleProof() public withRequiredModules {
+        uint256 currentNonce = RESOURCE_LOCK_VALIDATOR.getNonce(address(SCW));
+        // Create UserOp with ResourceLock
+        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpWithResourceLock(address(SCW), sessionKey, true);
+        // Sign merkle root directly
+        bytes memory sig = _sign(merkleRoot, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        _executeUserOp(op);
+        assertEq(RESOURCE_LOCK_VALIDATOR.getNonce(address(SCW)), currentNonce + 1);
+    }
 }

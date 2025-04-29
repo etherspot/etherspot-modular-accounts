@@ -20,4 +20,9 @@ interface IResourceLockValidator is IValidator {
     /// @notice Emitted when the resource lock validator is disabled for a smart contract wallet
     /// @param scw The address of the smart contract wallet
     event RLV_ValidatorDisabled(address indexed scw);
+
+    /// @notice Emitted when the resource lock validator is disabled for a smart contract wallet
+    /// @param scw The address of the smart contract wallet
+    /// @param newNonce The new nonce value
+    event RLV_NonceUpdated(address indexed scw, uint256 newNonce);
 }

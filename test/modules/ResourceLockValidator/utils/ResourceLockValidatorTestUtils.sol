@@ -87,7 +87,7 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
             validAfter: 1732176210,
             validUntil: 1732435407,
             tokenData: td,
-            nonce: 14
+            nonce: 0
         });
         return rl;
     }
