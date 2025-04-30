@@ -436,6 +436,14 @@ contract ModularTestBase is Test {
         }
     }
 
+    function _packProofForSignature(bytes32[] memory proof) internal pure returns (bytes memory) {
+        bytes memory result;
+        for (uint256 i; i < proof.length; ++i) {
+            result = bytes.concat(result, abi.encodePacked(proof[i]));
+        }
+        return result;
+    }
+
     function _hashPair(bytes32 left, bytes32 right) private pure returns (bytes32 result) {
         assembly {
             switch lt(left, right)

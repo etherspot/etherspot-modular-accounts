@@ -146,7 +146,21 @@ contract ResourceLockValidator is IResourceLockValidator {
         ResourceLock memory rl = _getResourceLock(userOp.callData);
         bytes memory ecdsaSignature = signature[0:65];
         bytes32 root = bytes32(signature[65:97]); // 32 bytes
-        bytes32[] memory proof = abi.decode(signature[97:], (bytes32[])); // Rest of bytes in signature
+        bytes32[] memory proof;
+        if (signature.length > 97) {
+            // Calculate how many proof elements we have
+            uint256 proofCount = (signature.length - 97) / 32;
+            // Create an array of the right size
+            proof = new bytes32[](proofCount);
+            // Extract each proof element
+            for (uint256 i; i < proofCount; ++i) {
+                uint256 startPos = 97 + (i * 32);
+                proof[i] = bytes32(signature[startPos:startPos + 32]);
+            }
+        } else {
+            // Empty proof
+            proof = new bytes32[](0);
+        }
         if (!MerkleProofLib.verify(proof, root, _buildResourceLockHash(rl))) {
             revert RLV_ResourceLockHashNotInProof();
         }
@@ -186,7 +200,21 @@ contract ResourceLockValidator is IResourceLockValidator {
         }
         bytes memory ecdsaSig = signature[0:65];
         bytes32 root = bytes32(signature[65:97]);
-        bytes32[] memory proof = abi.decode(signature[97:], (bytes32[]));
+        bytes32[] memory proof;
+        if (signature.length > 97) {
+            // Calculate how many proof elements we have
+            uint256 proofCount = (signature.length - 97) / 32;
+            // Create an array of the right size
+            proof = new bytes32[](proofCount);
+            // Extract each proof element
+            for (uint256 i; i < proofCount; ++i) {
+                uint256 startPos = 97 + (i * 32);
+                proof[i] = bytes32(signature[startPos:startPos + 32]);
+            }
+        } else {
+            // Empty proof
+            proof = new bytes32[](0);
+        }
         if (!MerkleProofLib.verify(proof, root, hash)) {
             revert RLV_ResourceLockHashNotInProof();
         }

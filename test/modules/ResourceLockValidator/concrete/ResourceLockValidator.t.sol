@@ -158,7 +158,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         (bytes32[] memory proof, bytes32 merkleRoot,) = getTestProof(rlHash, true);
         // Sign merkle root directly
         bytes memory sig = _sign(merkleRoot, eoa);
-        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         // Check signature is valid and leaf is included in proof
         assertEq(RESOURCE_LOCK_VALIDATOR.isValidSignatureWithSender(eoa.pub, rlHash, compositeSig), ERC1271_MAGIC_VALUE);
     }
@@ -176,7 +176,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         (bytes32[] memory proof, bytes32 merkleRoot,) = getTestProof(rlHash, false);
         // Sign merkle root directly
         bytes memory sig = _sign(merkleRoot, eoa);
-        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         // Expect revert as rlHash is not in proof
         _toRevert(ResourceLockValidator.RLV_ResourceLockHashNotInProof.selector, hex"");
         RESOURCE_LOCK_VALIDATOR.isValidSignatureWithSender(eoa.pub, rlHash, compositeSig);
@@ -195,7 +195,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         (bytes32[] memory proof, bytes32 merkleRoot,) = getTestProof(rlHash, true);
         // Sign merkle root directly
         bytes memory sig = _sign(merkleRoot, sessionKey);
-        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         // Check signature is valid and leaf is included in proof
         assertEq(RESOURCE_LOCK_VALIDATOR.isValidSignatureWithSender(eoa.pub, rlHash, compositeSig), ERC1271_INVALID);
     }
@@ -210,7 +210,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         (bytes32[] memory proof, bytes32 merkleRoot,) = getTestProof(rlHash, true);
         // Sign merkle root with eth prefix
         bytes memory sig = _ethSign(merkleRoot, eoa);
-        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         // Check signature is valid and leaf is included in proof
         assertEq(RESOURCE_LOCK_VALIDATOR.isValidSignatureWithSender(eoa.pub, rlHash, compositeSig), ERC1271_MAGIC_VALUE);
     }
@@ -228,7 +228,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         (bytes32[] memory proof, bytes32 merkleRoot,) = getTestProof(rlHash, false);
         // Sign merkle root with eth prefix
         bytes memory sig = _sign(merkleRoot, eoa);
-        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         // Expect revert as rlHash is not in proof
         _toRevert(ResourceLockValidator.RLV_ResourceLockHashNotInProof.selector, hex"");
         RESOURCE_LOCK_VALIDATOR.isValidSignatureWithSender(eoa.pub, rlHash, compositeSig);
@@ -247,7 +247,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         (bytes32[] memory proof, bytes32 merkleRoot,) = getTestProof(rlHash, true);
         // Sign merkle root with eth prefix
         bytes memory sig = _ethSign(merkleRoot, sessionKey);
-        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         // Check signature is valid and leaf is included in proof
         assertEq(RESOURCE_LOCK_VALIDATOR.isValidSignatureWithSender(eoa.pub, rlHash, compositeSig), ERC1271_INVALID);
     }
@@ -299,7 +299,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         bytes32 merkleRoot = keccak256(abi.encodePacked(rlHash));
         // Sign merkle root directly
         bytes memory sig = _sign(merkleRoot, eoa);
-        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(emptyProof));
+        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(emptyProof));
         // Expect revert
         _toRevert(ResourceLockValidator.RLV_ResourceLockHashNotInProof.selector, hex"");
         RESOURCE_LOCK_VALIDATOR.isValidSignatureWithSender(eoa.pub, rlHash, compositeSig);
@@ -316,7 +316,8 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         bytes32 merkleRoot = keccak256(abi.encodePacked(rlHash));
         // Sign merkle root directly
         bytes memory sig = _sign(merkleRoot, eoa);
-        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(oversizedProof));
+        bytes memory compositeSig =
+            bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(oversizedProof));
         // Expect revert
         _toRevert(ResourceLockValidator.RLV_ResourceLockHashNotInProof.selector, hex"");
         RESOURCE_LOCK_VALIDATOR.isValidSignatureWithSender(eoa.pub, rlHash, compositeSig);
@@ -334,7 +335,8 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         bytes32 merkleRoot = keccak256(abi.encodePacked(rlHash));
         // Sign merkle root directly
         bytes memory sig = _sign(merkleRoot, eoa);
-        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(malformedProof));
+        bytes memory compositeSig =
+            bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(malformedProof));
         // Expect revert
         _toRevert(ResourceLockValidator.RLV_ResourceLockHashNotInProof.selector, hex"");
         RESOURCE_LOCK_VALIDATOR.isValidSignatureWithSender(eoa.pub, rlHash, compositeSig);
@@ -398,11 +400,12 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
     /// @dev Verifies successful execution of UserOp with direct merkle proof signature
     function test_validateUserOp_DirectMerkleSignature() public withRequiredModules {
         // Create UserOp with ResourceLock
-        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
+        (PackedUserOperation memory op, ResourceLock memory rl, bytes32[] memory proof, bytes32 merkleRoot) =
             _createUserOpWithResourceLock(address(SCW), sessionKey, true);
+        console2.logBytes32(_buildResourceLockHash(rl));
         // Sign merkle root directly
         bytes memory sig = _sign(merkleRoot, eoa);
-        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         _executeUserOp(op);
     }
 
@@ -435,7 +438,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         );
         // Sign merkle root with eth prefix
         bytes memory sig = _sign(merkleRoot, eoa);
-        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         _executeUserOp(op);
         // Check locked tokens
         TokenData[] memory locked =
@@ -455,7 +458,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
             _createUserOpWithResourceLock(address(SCW), sessionKey, false);
         // Sign merkle root directly
         bytes memory sig = _sign(merkleRoot, sessionKey);
-        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         _toRevert(
             IEntryPoint.FailedOpWithRevert.selector,
             abi.encode(0, AA23, abi.encodeWithSelector(ResourceLockValidator.RLV_ResourceLockHashNotInProof.selector))
@@ -471,7 +474,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
             _createUserOpWithResourceLock(address(SCW), sessionKey, true);
         // Sign merkle root directly
         bytes memory sig = _sign(merkleRoot, sessionKey);
-        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         _executeUserOp(op);
     }
@@ -484,7 +487,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
             _createUserOpWithResourceLock(address(SCW), sessionKey, true);
         // Sign merkle root directly
         bytes memory sig = _ethSign(merkleRoot, eoa);
-        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         _executeUserOp(op);
     }
 
@@ -517,7 +520,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         );
         // Sign merkle root with eth prefix
         bytes memory sig = _ethSign(merkleRoot, eoa);
-        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         _executeUserOp(op);
         // Check locked tokens
         TokenData[] memory locked =
@@ -537,7 +540,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
             _createUserOpWithResourceLock(address(SCW), sessionKey, false);
         // Sign merkle root directly
         bytes memory sig = _ethSign(merkleRoot, eoa);
-        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         _toRevert(
             IEntryPoint.FailedOpWithRevert.selector,
             abi.encode(0, AA23, abi.encodeWithSelector(ResourceLockValidator.RLV_ResourceLockHashNotInProof.selector))
@@ -553,7 +556,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
             _createUserOpWithResourceLock(address(SCW), sessionKey, true);
         // Sign merkle root directly
         bytes memory sig = _sign(merkleRoot, sessionKey);
-        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
         _executeUserOp(op);
     }
@@ -565,7 +568,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
             _createUserOpWithResourceLock(address(SCW), sessionKey, true);
         // Sign merkle root directly
         bytes memory sig = _sign(merkleRoot, eoa);
-        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         _executeUserOp(op);
         assertEq(RESOURCE_LOCK_VALIDATOR.getNonce(address(SCW)), currentNonce + 1);
     }
@@ -577,7 +580,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
             _createUserOpWithResourceLock(address(SCW), sessionKey, true);
         // Sign merkle root directly
         bytes memory sig = _sign(merkleRoot, eoa);
-        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         _executeUserOp(op);
         // Expect nonce to now be 1
         assertEq(RESOURCE_LOCK_VALIDATOR.getNonce(address(SCW)), currentNonce + 1);
@@ -586,12 +589,26 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         (op,, proof, merkleRoot) = _createUserOpWithResourceLock(address(SCW), sessionKey, true);
         // Sign merkle root directly
         sig = _sign(merkleRoot, eoa);
-        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), abi.encode(proof));
+        op.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         // Expect revert as nonce provided is 0 but validator expects 1
         _toRevert(
             IEntryPoint.FailedOpWithRevert.selector,
             abi.encode(0, AA23, abi.encodeWithSelector(ResourceLockValidator.RLV_InvalidNonce.selector, 1, 0))
         );
+        _executeUserOp(op);
+    }
+
+    // NOTE: This test is for testing specific signatures to check correct unpacking
+    // Replace the op.signature with your own, add logs and run test
+    // Test will fail with RLV_ResourceLockHashNotInProof()
+    function test_signature_unpacking() public withRequiredModules {
+        vm.skip(true);
+        // Create UserOp with ResourceLock
+        (PackedUserOperation memory op,, bytes32[] memory proof, bytes32 merkleRoot) =
+            _createUserOpWithResourceLock(address(SCW), sessionKey, true);
+        // Use predefined sig
+        op.signature =
+            hex"137ad66810b0325f2820c1f9160c2076a1607e5fd7010c4b02368b3905bccef1222086c638e9d828464dcc6330517430cd93516969b23612e3e41199f65950621b4a2c9276c86b3c670b424ab981c89c53f858e870f31a2999cf52353837897362bc36789e7a1e281436464229828f817d6612f7b477d66591ff96a9e064bcc98a";
         _executeUserOp(op);
     }
 }
