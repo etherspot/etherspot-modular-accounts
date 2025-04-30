@@ -1,7 +1,7 @@
 // SPDX-License-Identifier:MIT
-pragma solidity ^0.8.23;
+pragma solidity ^0.8.27;
 
-import "openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract TestWETH is ERC20 {
     // solhint-disable-next-line no-empty-blocks
@@ -18,7 +18,7 @@ contract TestWETH is ERC20 {
     function withdraw(uint256 amount) public {
         _burn(msg.sender, amount);
         // solhint-disable-next-line avoid-low-level-calls
-        (bool success, ) = msg.sender.call{value: amount}("");
+        (bool success,) = msg.sender.call{value: amount}("");
         require(success, "transfer failed");
     }
 }

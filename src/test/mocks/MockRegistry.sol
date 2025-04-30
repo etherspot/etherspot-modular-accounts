@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.23;
+pragma solidity ^0.8.27;
 
-import {IERC7484} from "../../interfaces/IERC7484.sol";
+import {IERC7484} from "../../interfaces/ercs/IERC7484.sol";
 
 contract MockRegistry is IERC7484 {
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -13,10 +13,7 @@ contract MockRegistry is IERC7484 {
         }
     }
 
-    function checkForAccount(
-        address smartAccount,
-        address module
-    ) external view {
+    function checkForAccount(address smartAccount, address module) external view {
         if (module == address(0x420)) {
             revert();
         }
@@ -28,11 +25,7 @@ contract MockRegistry is IERC7484 {
         }
     }
 
-    function checkForAccount(
-        address smartAccount,
-        address module,
-        uint256 moduleType
-    ) external view {
+    function checkForAccount(address smartAccount, address module, uint256 moduleType) external view {
         if (module == address(0x420)) {
             revert();
         }
@@ -42,29 +35,17 @@ contract MockRegistry is IERC7484 {
     /*              Check with external attester(s)               */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    function check(
-        address module,
-        address[] calldata attesters,
-        uint256 threshold
-    ) external view {
+    function check(address module, address[] calldata attesters, uint256 threshold) external view {
         if (module == address(0x420)) {
             revert();
         }
     }
 
-    function check(
-        address module,
-        uint256 moduleType,
-        address[] calldata attesters,
-        uint256 threshold
-    ) external view {
+    function check(address module, uint256 moduleType, address[] calldata attesters, uint256 threshold) external view {
         if (module == address(0x420)) {
             revert();
         }
     }
 
-    function trustAttesters(
-        uint8 threshold,
-        address[] calldata attesters
-    ) external {}
+    function trustAttesters(uint8 threshold, address[] calldata attesters) external {}
 }

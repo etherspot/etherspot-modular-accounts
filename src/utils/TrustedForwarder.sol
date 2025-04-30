@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-pragma solidity ^0.8.23;
+pragma solidity ^0.8.27;
 
 /*
  * This contract is derived from Rhinestone's TrustedForwarder.sol:
@@ -36,10 +36,7 @@ abstract contract TrustedForwarder {
      *
      * @return true if the forwarder is trusted for the account
      */
-    function isTrustedForwarder(
-        address forwarder,
-        address account
-    ) public view returns (bool) {
+    function isTrustedForwarder(address forwarder, address account) public view returns (bool) {
         return forwarder == trustedForwarder[account];
     }
 
@@ -57,10 +54,7 @@ abstract contract TrustedForwarder {
                 _account := shr(96, calldataload(sub(calldatasize(), 20)))
                 forwarder := shr(96, calldataload(sub(calldatasize(), 40)))
             }
-            if (
-                forwarder == msg.sender &&
-                isTrustedForwarder(forwarder, _account)
-            ) {
+            if (forwarder == msg.sender && isTrustedForwarder(forwarder, _account)) {
                 account = _account;
             }
         }
