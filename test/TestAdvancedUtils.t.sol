@@ -16,7 +16,17 @@ import {MockExecutor} from "ERC7579/test/mocks/MockExecutor.sol";
 import {MockTarget} from "ERC7579/test/mocks/MockTarget.sol";
 import {MockFallback} from "ERC7579/test/mocks/MockFallbackHandler.sol";
 import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
-import {ModeLib, ModeCode, CallType, ExecType, ModeSelector, ModePayload, CALLTYPE_STATIC, EXECTYPE_DEFAULT, MODE_DEFAULT} from "ERC7579/libs/ModeLib.sol";
+import {
+    ModeLib,
+    ModeCode,
+    CallType,
+    ExecType,
+    ModeSelector,
+    ModePayload,
+    CALLTYPE_STATIC,
+    EXECTYPE_DEFAULT,
+    MODE_DEFAULT
+} from "ERC7579/libs/ModeLib.sol";
 import "ERC7579/test/dependencies/EntryPoint.sol";
 import {ModularEtherspotWallet} from "../src/wallet/ModularEtherspotWallet.sol";
 import {ModularEtherspotWalletFactory} from "../src/wallet/ModularEtherspotWalletFactory.sol";
@@ -76,10 +86,7 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         vm.startPrank(owner1);
         // Set up MSA and Factory
         implementation = new ModularEtherspotWallet();
-        factory = new ModularEtherspotWalletFactory(
-            address(implementation),
-            owner1
-        );
+        factory = new ModularEtherspotWalletFactory(address(implementation), owner1);
         // Set up default modules
         defaultExecutor = new MockExecutor();
         defaultValidator = new MockValidator();
@@ -103,83 +110,48 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         // Proof Verifier for CredibleAccountValidator
         proofVerifier = new ProofVerifier();
         // HookMultiplexer for MEW
-        hookMultiPlexer = new HookMultiPlexer(registry);
+        hookMultiPlexer = new HookMultiPlexer();
         // CredibleAccountModule for MEW
-        credibleAccountModule = new CredibleAccountModule(
-            address(proofVerifier),
-            address(hookMultiPlexer)
-        );
+        credibleAccountModule = new CredibleAccountModule(address(proofVerifier), address(hookMultiPlexer));
         // Set up Target for testing
         target = new MockTarget();
         vm.stopPrank();
     }
 
-    function getAccountAndInitCode()
-        internal
-        returns (address account, bytes memory initCode)
-    {
+    function getAccountAndInitCode() internal returns (address account, bytes memory initCode) {
         // Create config for initial modules
-        BootstrapConfig[] memory validators = makeBootstrapConfig(
-            address(defaultValidator),
-            ""
-        );
-        BootstrapConfig[] memory executors = makeBootstrapConfig(
-            address(defaultExecutor),
-            ""
-        );
+        BootstrapConfig[] memory validators = makeBootstrapConfig(address(defaultValidator), "");
+        BootstrapConfig[] memory executors = makeBootstrapConfig(address(defaultExecutor), "");
         BootstrapConfig memory hook = _makeBootstrapConfig(address(0), "");
-        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(
-            address(0),
-            ""
-        );
+        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(address(0), "");
 
         // Create initcode and salt to be sent to Factory
-        bytes memory _initCode = bootstrapSingleton._getInitMSACalldata(
-            validators,
-            executors,
-            hook,
-            fallbacks
-        );
+        bytes memory _initCode = bootstrapSingleton._getInitMSACalldata(validators, executors, hook, fallbacks);
 
         bytes32 salt = keccak256("1");
         // Get address of new account
         account = factory.getAddress(salt, _initCode);
 
         // Pack the initcode to include in the userOp
-        initCode = abi.encodePacked(
-            address(factory),
-            abi.encodeWithSelector(
-                factory.createAccount.selector,
-                salt,
-                _initCode
-            )
-        );
+        initCode =
+            abi.encodePacked(address(factory), abi.encodeWithSelector(factory.createAccount.selector, salt, _initCode));
 
         // Deal 100 ether to the account
         vm.deal(account, 100 ether);
     }
 
-    function getNonce(
-        address account,
-        address validator
-    ) internal view returns (uint256 nonce) {
+    function getNonce(address account, address validator) internal view returns (uint256 nonce) {
         uint192 key = uint192(bytes24(bytes20(validator)));
         nonce = entrypoint.getNonce(address(account), key);
     }
 
-    function getDefaultUserOp()
-        internal
-        pure
-        returns (PackedUserOperation memory userOp)
-    {
+    function getDefaultUserOp() internal pure returns (PackedUserOperation memory userOp) {
         userOp = PackedUserOperation({
             sender: address(0),
             nonce: 0,
             initCode: "",
             callData: "",
-            accountGasLimits: bytes32(
-                abi.encodePacked(uint128(2e6), uint128(2e6))
-            ),
+            accountGasLimits: bytes32(abi.encodePacked(uint128(2e6), uint128(2e6))),
             preVerificationGas: 2e6,
             gasFees: bytes32(abi.encodePacked(uint128(2e6), uint128(2e6))),
             paymasterAndData: bytes(""),
@@ -187,24 +159,12 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         });
     }
 
-    function getMEWAndInitCode()
-        internal
-        returns (address account, bytes memory initCode)
-    {
+    function getMEWAndInitCode() internal returns (address account, bytes memory initCode) {
         // Create config for initial modules
-        BootstrapConfig[] memory validators = makeBootstrapConfig(
-            address(ecdsaValidator),
-            abi.encodePacked(owner1)
-        );
-        BootstrapConfig[] memory executors = makeBootstrapConfig(
-            address(defaultExecutor),
-            ""
-        );
+        BootstrapConfig[] memory validators = makeBootstrapConfig(address(ecdsaValidator), abi.encodePacked(owner1));
+        BootstrapConfig[] memory executors = makeBootstrapConfig(address(defaultExecutor), "");
         BootstrapConfig memory hook = _makeBootstrapConfig(address(0), "");
-        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(
-            address(0),
-            ""
-        );
+        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(address(0), "");
 
         // Create owner
         (owner1, owner1Key) = makeAddrAndKey("owner1");
@@ -213,10 +173,7 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         bytes memory _initCode = abi.encode(
             owner1,
             address(bootstrapSingleton),
-            abi.encodeCall(
-                bootstrapSingleton.initMSA,
-                (validators, executors, hook, fallbacks)
-            )
+            abi.encodeCall(bootstrapSingleton.initMSA, (validators, executors, hook, fallbacks))
         );
         bytes32 salt = keccak256("1");
 
@@ -224,14 +181,8 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         account = factory.getAddress(salt, _initCode);
 
         // Pack the initcode to include in the userOp
-        initCode = abi.encodePacked(
-            address(factory),
-            abi.encodeWithSelector(
-                factory.createAccount.selector,
-                salt,
-                _initCode
-            )
-        );
+        initCode =
+            abi.encodePacked(address(factory), abi.encodeWithSelector(factory.createAccount.selector, salt, _initCode));
 
         // Deal 100 ether to the account
         vm.deal(account, 100 ether);
@@ -239,19 +190,10 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
 
     function setupMEW() internal returns (ModularEtherspotWallet mew) {
         // Create config for initial modules
-        BootstrapConfig[] memory validators = makeBootstrapConfig(
-            address(ecdsaValidator),
-            abi.encodePacked(owner1)
-        );
-        BootstrapConfig[] memory executors = makeBootstrapConfig(
-            address(defaultExecutor),
-            ""
-        );
+        BootstrapConfig[] memory validators = makeBootstrapConfig(address(ecdsaValidator), abi.encodePacked(owner1));
+        BootstrapConfig[] memory executors = makeBootstrapConfig(address(defaultExecutor), "");
         BootstrapConfig memory hook = _makeBootstrapConfig(address(0), "");
-        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(
-            address(0),
-            ""
-        );
+        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(address(0), "");
 
         // Create owner
         (owner1, owner1Key) = makeAddrAndKey("owner1");
@@ -260,43 +202,26 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         bytes memory _initCode = abi.encode(
             owner1,
             address(bootstrapSingleton),
-            abi.encodeCall(
-                bootstrapSingleton.initMSA,
-                (validators, executors, hook, fallbacks)
-            )
+            abi.encodeCall(bootstrapSingleton.initMSA, (validators, executors, hook, fallbacks))
         );
         bytes32 salt = keccak256("1");
 
         vm.startPrank(owner1);
         // create account
-        mewAccount = ModularEtherspotWallet(
-            payable(factory.createAccount({salt: salt, initCode: _initCode}))
-        );
+        mewAccount = ModularEtherspotWallet(payable(factory.createAccount({salt: salt, initCode: _initCode})));
         vm.deal(address(mewAccount), 100 ether);
         vm.stopPrank();
         return mewAccount;
     }
 
-    function setupMEWWithERC20SessionKeys()
-        internal
-        returns (ModularEtherspotWallet mew)
-    {
+    function setupMEWWithERC20SessionKeys() internal returns (ModularEtherspotWallet mew) {
         // Create config for initial modules
         BootstrapConfig[] memory validators = new BootstrapConfig[](2);
         validators[0] = _makeBootstrapConfig(address(ecdsaValidator), "");
-        validators[1] = _makeBootstrapConfig(
-            address(erc20SessionKeyValidator),
-            ""
-        );
-        BootstrapConfig[] memory executors = makeBootstrapConfig(
-            address(defaultExecutor),
-            ""
-        );
+        validators[1] = _makeBootstrapConfig(address(erc20SessionKeyValidator), "");
+        BootstrapConfig[] memory executors = makeBootstrapConfig(address(defaultExecutor), "");
         BootstrapConfig memory hook = _makeBootstrapConfig(address(0), "");
-        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(
-            address(0),
-            ""
-        );
+        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(address(0), "");
 
         // Create owner
         (owner1, owner1Key) = makeAddrAndKey("owner1");
@@ -306,40 +231,26 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         bytes memory _initCode = abi.encode(
             owner1,
             address(bootstrapSingleton),
-            abi.encodeCall(
-                bootstrapSingleton.initMSA,
-                (validators, executors, hook, fallbacks)
-            )
+            abi.encodeCall(bootstrapSingleton.initMSA, (validators, executors, hook, fallbacks))
         );
         bytes32 salt = keccak256("1");
 
         vm.startPrank(owner1);
         // create account
-        mewAccount = ModularEtherspotWallet(
-            payable(factory.createAccount({salt: salt, initCode: _initCode}))
-        );
+        mewAccount = ModularEtherspotWallet(payable(factory.createAccount({salt: salt, initCode: _initCode})));
         vm.deal(address(mewAccount), 100 ether);
         vm.stopPrank();
         return mewAccount;
     }
 
-    function setupMEWWithSessionKeys()
-        internal
-        returns (ModularEtherspotWallet mew)
-    {
+    function setupMEWWithSessionKeys() internal returns (ModularEtherspotWallet mew) {
         // Create config for initial modules
         BootstrapConfig[] memory validators = new BootstrapConfig[](2);
         validators[0] = _makeBootstrapConfig(address(ecdsaValidator), "");
         validators[1] = _makeBootstrapConfig(address(sessionKeyValidator), "");
-        BootstrapConfig[] memory executors = makeBootstrapConfig(
-            address(defaultExecutor),
-            ""
-        );
+        BootstrapConfig[] memory executors = makeBootstrapConfig(address(defaultExecutor), "");
         BootstrapConfig memory hook = _makeBootstrapConfig(address(0), "");
-        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(
-            address(0),
-            ""
-        );
+        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(address(0), "");
 
         // Create owner
         (owner1, owner1Key) = makeAddrAndKey("owner1");
@@ -349,35 +260,24 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         bytes memory _initCode = abi.encode(
             owner1,
             address(bootstrapSingleton),
-            abi.encodeCall(
-                bootstrapSingleton.initMSA,
-                (validators, executors, hook, fallbacks)
-            )
+            abi.encodeCall(bootstrapSingleton.initMSA, (validators, executors, hook, fallbacks))
         );
         bytes32 salt = keccak256("1");
 
         vm.startPrank(owner1);
         // create account
-        mewAccount = ModularEtherspotWallet(
-            payable(factory.createAccount({salt: salt, initCode: _initCode}))
-        );
+        mewAccount = ModularEtherspotWallet(payable(factory.createAccount({salt: salt, initCode: _initCode})));
         vm.deal(address(mewAccount), 100 ether);
         vm.stopPrank();
         return mewAccount;
     }
 
-    function setupMainnetForkDeployementAndCreateAccount()
-        public
-        returns (ModularEtherspotWallet mew)
-    {
+    function setupMainnetForkDeployementAndCreateAccount() public returns (ModularEtherspotWallet mew) {
         // // start fork
         // vm.selectFork(mainnetFork);
         // Set up MSA and Factory
         implementation = new ModularEtherspotWallet();
-        factory = new ModularEtherspotWalletFactory(
-            address(implementation),
-            owner1
-        );
+        factory = new ModularEtherspotWalletFactory(address(implementation), owner1);
         bootstrapSingleton = new Bootstrap();
 
         // Set up Modules
@@ -393,23 +293,14 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
 
         // SessionKeyValidator for MEW
         sessionKeyValidator = new SessionKeyValidator();
-        console2.log(
-            "address(sessionKeyValidator) - from test utils: ",
-            address(sessionKeyValidator)
-        );
+        console2.log("address(sessionKeyValidator) - from test utils: ", address(sessionKeyValidator));
         // Create config for initial modules
         BootstrapConfig[] memory validators = new BootstrapConfig[](2);
         validators[0] = _makeBootstrapConfig(address(ecdsaValidator), "");
         validators[1] = _makeBootstrapConfig(address(sessionKeyValidator), "");
-        BootstrapConfig[] memory executors = makeBootstrapConfig(
-            address(executor),
-            ""
-        );
+        BootstrapConfig[] memory executors = makeBootstrapConfig(address(executor), "");
         BootstrapConfig memory hook = _makeBootstrapConfig(address(0), "");
-        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(
-            address(0),
-            ""
-        );
+        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(address(0), "");
 
         // Create owner
         (owner1, owner1Key) = makeAddrAndKey("owner1");
@@ -419,48 +310,30 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         bytes memory _initCode = abi.encode(
             owner1,
             address(bootstrapSingleton),
-            abi.encodeCall(
-                bootstrapSingleton.initMSA,
-                (validators, executors, hook, fallbacks)
-            )
+            abi.encodeCall(bootstrapSingleton.initMSA, (validators, executors, hook, fallbacks))
         );
         bytes32 salt = keccak256("1");
 
         vm.startPrank(owner1);
         // create account
-        mewAccount = ModularEtherspotWallet(
-            payable(factory.createAccount({salt: salt, initCode: _initCode}))
-        );
+        mewAccount = ModularEtherspotWallet(payable(factory.createAccount({salt: salt, initCode: _initCode})));
         vm.deal(address(mewAccount), 100 ether);
         vm.stopPrank();
         return mewAccount;
     }
 
-    function setupMEWWithHookMultiplexerAndCredibleAccountModule()
-        public
-        returns (ModularEtherspotWallet)
-    {
+    function setupMEWWithHookMultiplexerAndCredibleAccountModule() public returns (ModularEtherspotWallet) {
         // Create config for initial modules
         BootstrapConfig[] memory validators = new BootstrapConfig[](1);
         validators[0] = _makeBootstrapConfig(address(ecdsaValidator), "");
 
-        BootstrapConfig[] memory executors = makeBootstrapConfig(
-            address(defaultExecutor),
-            ""
-        );
+        BootstrapConfig[] memory executors = makeBootstrapConfig(address(defaultExecutor), "");
 
-        bytes
-            memory hookMultiplexerInitData = _getHookMultiPlexerInitDataWithCredibleAccountModule();
+        bytes memory hookMultiplexerInitData = _getHookMultiPlexerInitDataWithCredibleAccountModule();
 
-        BootstrapConfig memory hook = _makeBootstrapConfig(
-            address(hookMultiPlexer),
-            hookMultiplexerInitData
-        );
+        BootstrapConfig memory hook = _makeBootstrapConfig(address(hookMultiPlexer), hookMultiplexerInitData);
 
-        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(
-            address(0),
-            ""
-        );
+        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(address(0), "");
 
         // Create owner
         (owner1, owner1Key) = makeAddrAndKey("owner1");
@@ -470,48 +343,30 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         bytes memory _initCode = abi.encode(
             owner1,
             address(bootstrapSingleton),
-            abi.encodeCall(
-                bootstrapSingleton.initMSA,
-                (validators, executors, hook, fallbacks)
-            )
+            abi.encodeCall(bootstrapSingleton.initMSA, (validators, executors, hook, fallbacks))
         );
         bytes32 salt = keccak256("1");
 
         vm.startPrank(owner1);
         // create account
-        mewAccount = ModularEtherspotWallet(
-            payable(factory.createAccount({salt: salt, initCode: _initCode}))
-        );
+        mewAccount = ModularEtherspotWallet(payable(factory.createAccount({salt: salt, initCode: _initCode})));
         vm.deal(address(mewAccount), 100 ether);
         vm.stopPrank();
         return mewAccount;
     }
 
-    function setupMEWWithEmptyHookMultiplexer()
-        public
-        returns (ModularEtherspotWallet)
-    {
+    function setupMEWWithEmptyHookMultiplexer() public returns (ModularEtherspotWallet) {
         // Create config for initial modules
         BootstrapConfig[] memory validators = new BootstrapConfig[](1);
         validators[0] = _makeBootstrapConfig(address(ecdsaValidator), "");
 
-        BootstrapConfig[] memory executors = makeBootstrapConfig(
-            address(defaultExecutor),
-            ""
-        );
+        BootstrapConfig[] memory executors = makeBootstrapConfig(address(defaultExecutor), "");
 
-        bytes
-            memory hookMultiplexerInitData = _getHookMultiPlexerInitDataWithNoSubHooks();
+        bytes memory hookMultiplexerInitData = _getHookMultiPlexerInitDataWithNoSubHooks();
 
-        BootstrapConfig memory hook = _makeBootstrapConfig(
-            address(hookMultiPlexer),
-            hookMultiplexerInitData
-        );
+        BootstrapConfig memory hook = _makeBootstrapConfig(address(hookMultiPlexer), hookMultiplexerInitData);
 
-        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(
-            address(0),
-            ""
-        );
+        BootstrapConfig[] memory fallbacks = makeBootstrapConfig(address(0), "");
 
         // Create owner
         (owner1, owner1Key) = makeAddrAndKey("owner1");
@@ -521,27 +376,19 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         bytes memory _initCode = abi.encode(
             owner1,
             address(bootstrapSingleton),
-            abi.encodeCall(
-                bootstrapSingleton.initMSA,
-                (validators, executors, hook, fallbacks)
-            )
+            abi.encodeCall(bootstrapSingleton.initMSA, (validators, executors, hook, fallbacks))
         );
         bytes32 salt = keccak256("1");
 
         vm.startPrank(owner1);
         // create account
-        mewAccount = ModularEtherspotWallet(
-            payable(factory.createAccount({salt: salt, initCode: _initCode}))
-        );
+        mewAccount = ModularEtherspotWallet(payable(factory.createAccount({salt: salt, initCode: _initCode})));
         vm.deal(address(mewAccount), 100 ether);
         vm.stopPrank();
         return mewAccount;
     }
 
-    function _getHookMultiPlexerInitDataWithAllHookTypes()
-        internal
-        returns (bytes memory)
-    {
+    function _getHookMultiPlexerInitDataWithAllHookTypes() internal returns (bytes memory) {
         address[] memory globalHooks = new address[](1);
         globalHooks[0] = address(credibleAccountModule);
 
@@ -562,10 +409,7 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         vm.label((allHooks[4]), "sigHooks2 index 4");
 
         SigHookInit[] memory sigHooks = new SigHookInit[](1);
-        sigHooks[0] = SigHookInit({
-            sig: IERC7579Account.installModule.selector,
-            subHooks: _sigHooks
-        });
+        sigHooks[0] = SigHookInit({sig: IERC7579Account.installModule.selector, subHooks: _sigHooks});
 
         address[] memory _targetSigHooks = new address[](2);
         _targetSigHooks[0] = address(allHooks[5]);
@@ -574,65 +418,31 @@ contract TestAdvancedUtils is BootstrapUtil, Test {
         vm.label((allHooks[6]), "targetSigHook2 index 6");
 
         SigHookInit[] memory targetSigHooks = new SigHookInit[](1);
-        targetSigHooks[0] = SigHookInit({
-            sig: IERC20Interface.transfer.selector,
-            subHooks: _targetSigHooks
-        });
+        targetSigHooks[0] = SigHookInit({sig: IERC20Interface.transfer.selector, subHooks: _targetSigHooks});
 
-        return
-            abi.encode(
-                globalHooks,
-                valueHooks,
-                delegatecallHooks,
-                sigHooks,
-                targetSigHooks
-            );
+        return abi.encode(globalHooks, valueHooks, delegatecallHooks, sigHooks, targetSigHooks);
     }
 
-    function _getHookMultiPlexerInitDataWithCredibleAccountModule()
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _getHookMultiPlexerInitDataWithCredibleAccountModule() internal view returns (bytes memory) {
         address[] memory globalHooks = new address[](1);
         globalHooks[0] = address(credibleAccountModule);
         address[] memory valueHooks = new address[](0);
         address[] memory delegatecallHooks = new address[](0);
         SigHookInit[] memory sigHooks = new SigHookInit[](0);
         SigHookInit[] memory targetSigHooks = new SigHookInit[](0);
-        return
-            abi.encode(
-                globalHooks,
-                valueHooks,
-                delegatecallHooks,
-                sigHooks,
-                targetSigHooks
-            );
+        return abi.encode(globalHooks, valueHooks, delegatecallHooks, sigHooks, targetSigHooks);
     }
 
-    function _getHookMultiPlexerInitDataWithNoSubHooks()
-        internal
-        pure
-        returns (bytes memory)
-    {
+    function _getHookMultiPlexerInitDataWithNoSubHooks() internal pure returns (bytes memory) {
         address[] memory globalHooks = new address[](0);
         address[] memory valueHooks = new address[](0);
         address[] memory delegatecallHooks = new address[](0);
         SigHookInit[] memory sigHooks = new SigHookInit[](0);
         SigHookInit[] memory targetSigHooks = new SigHookInit[](0);
-        return
-            abi.encode(
-                globalHooks,
-                valueHooks,
-                delegatecallHooks,
-                sigHooks,
-                targetSigHooks
-            );
+        return abi.encode(globalHooks, valueHooks, delegatecallHooks, sigHooks, targetSigHooks);
     }
 
-    function _getHooks(
-        bool sort
-    ) internal view returns (address[] memory allHooks) {
+    function _getHooks(bool sort) internal view returns (address[] memory allHooks) {
         allHooks = Solarray.addresses(
             address(subHook1),
             address(subHook2),

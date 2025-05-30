@@ -72,9 +72,8 @@ MIT
 
 | Name                                       | Address                                    |
 | ------------------------------------------ | ------------------------------------------ |
-| ModularEtherspotWallet                     | [0x339eAB59e54fE25125AceC3225254a0cBD305A7b](https://contractscan.xyz/contract/0x339eAB59e54fE25125AceC3225254a0cBD305A7b) |
-| ModularEtherspotWalletFactory              | [0x2A40091f044e48DEB5C0FCbc442E443F3341B451](https://contractscan.xyz/contract/0x2A40091f044e48DEB5C0FCbc442E443F3341B451) |
-| Bootstrap                                  | [0x0D5154d7751b6e2fDaa06F0cC9B400549394C8AA](https://contractscan.xyz/contract/0x0D5154d7751b6e2fDaa06F0cC9B400549394C8AA) |
-| MultipleOwnerECDSAValidator                | [0x0740Ed7c11b9da33d9C80Bd76b826e4E90CC1906](https://contractscan.xyz/contract/0x0740Ed7c11b9da33d9C80Bd76b826e4E90CC1906) |
-
-</details>
+| ModularEtherspotWallet                     | [0x62Fdd1382b0182F2CC40bAdEa6E5DE0CCb2d6488](https://contractscan.xyz/contract/0x62Fdd1382b0182F2CC40bAdEa6E5DE0CCb2d6488) |
+| ModularEtherspotWalletFactory              | [0x38CC0EDdD3a944CA17981e0A19470d2298B8d43a](https://contractscan.xyz/contract/0x38CC0EDdD3a944CA17981e0A19470d2298B8d43a) |
+| Bootstrap                                  | [0xCF2808eA7d131d96E5C73Eb0eCD8Dc84D33905C7](https://contractscan.xyz/contract/0xCF2808eA7d131d96E5C73Eb0eCD8Dc84D33905C7) |
+| MultipleOwnerECDSAValidator                | [0x0eA25BF9F313344d422B513e1af679484338518E](https://contractscan.xyz/contract/0x0eA25BF9F313344d422B513e1af679484338518E) |
+| HookMultiPlexer                            | [0xDcA918dd23456d321282DF9507F6C09A50522136](https://contractscan.xyz/contract/0xDcA918dd23456d321282DF9507F6C09A50522136) |
