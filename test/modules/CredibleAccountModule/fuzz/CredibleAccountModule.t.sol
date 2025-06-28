@@ -11,7 +11,7 @@ import {CredibleAccountModule as CAM} from "../../../../src/modules/validators/C
 import {ICredibleAccountModule as ICAM} from "../../../../src/interfaces/ICredibleAccountModule.sol";
 import "../../../../src/wallet/ModularEtherspotWallet.sol";
 import {CredibleAccountModuleTestUtils as LocalTestUtils} from "../utils/CredibleAccountModuleTestUtils.sol";
-import "../../../../../src/common/Structs.sol";
+import "../../../../src/common/Structs.sol";
 import {TestWETH} from "../../../../src/test/TestWETH.sol";
 import {TestUniswapV2} from "../../../../src/test/TestUniswapV2.sol";
 import "../../../../src/utils/ERC4337Utils.sol";
@@ -55,13 +55,11 @@ contract CredibleAccountModule_Fuzz_Test is LocalTestUtils {
         );
         credibleAccountModule.enableSessionKey(rl);
         // Get session key data and validate
-        SessionData memory retrievedData = credibleAccountModule
-            .getSessionKeyData(_sessionKey);
+        SessionData memory retrievedData = credibleAccountModule.getSessionKeyData(_sessionKey);
         assertEq(retrievedData.validAfter, _validAfter);
         assertEq(retrievedData.validUntil, _validUntil);
         // Get locked token data and validate
-        ICAM.LockedToken[] memory lockedTokens = credibleAccountModule
-            .getLockedTokensForSessionKey(_sessionKey);
+        ICAM.LockedToken[] memory lockedTokens = credibleAccountModule.getLockedTokensForSessionKey(_sessionKey);
         assertEq(lockedTokens.length, _tokens.length);
         for (uint256 i; i < _tokens.length; ++i) {
             assertEq(lockedTokens[i].token, _tokens[i]);
@@ -70,10 +68,7 @@ contract CredibleAccountModule_Fuzz_Test is LocalTestUtils {
         }
     }
 
-    function testFuzz_disableSessionKey(
-        string memory _sessionKey,
-        uint256[3] memory _lockedAmounts
-    ) public {
+    function testFuzz_disableSessionKey(string memory _sessionKey, uint256[3] memory _lockedAmounts) public {
         (address sk, uint256 skp) = makeAddrAndKey(_sessionKey);
         for (uint256 i; i < _lockedAmounts.length; ++i) {
             vm.assume(_lockedAmounts[i] > 0 && _lockedAmounts[i] < 1000 ether);
@@ -99,81 +94,42 @@ contract CredibleAccountModule_Fuzz_Test is LocalTestUtils {
         );
         credibleAccountModule.enableSessionKey(rl);
         // Claim tokens to allow disabling
-        bytes memory usdcData = _createTokenTransferFromExecution(
-            address(mew),
-            address(solver),
-            _lockedAmounts[0]
-        );
+        bytes memory usdcData = _createTokenTransferFromExecution(address(mew), address(solver), _lockedAmounts[0]);
 
-        bytes memory daiData = _createTokenTransferFromExecution(
-            address(mew),
-            address(solver),
-            _lockedAmounts[1]
-        );
-        bytes memory uniData = _createTokenTransferFromExecution(
-            address(mew),
-            address(solver),
-            _lockedAmounts[2]
-        );
+        bytes memory daiData = _createTokenTransferFromExecution(address(mew), address(solver), _lockedAmounts[1]);
+        bytes memory uniData = _createTokenTransferFromExecution(address(mew), address(solver), _lockedAmounts[2]);
         Execution[] memory batch = new Execution[](3);
-        batch[0] = Execution({
-            target: address(usdc),
-            value: 0,
-            callData: usdcData
-        });
-        batch[1] = Execution({
-            target: address(dai),
-            value: 0,
-            callData: daiData
-        });
-        batch[2] = Execution({
-            target: address(uni),
-            value: 0,
-            callData: uniData
-        });
-        bytes memory userOpCalldata = abi.encodeCall(
-            IERC7579Account.execute,
-            (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch))
-        );
-        (, PackedUserOperation memory userOp) = _createUserOperation(
-            address(mew),
-            userOpCalldata,
-            address(credibleAccountModule),
-            skp
-        );
+        batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
+        batch[1] = Execution({target: address(dai), value: 0, callData: daiData});
+        batch[2] = Execution({target: address(uni), value: 0, callData: uniData});
+        bytes memory userOpCalldata =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
+        (, PackedUserOperation memory userOp) =
+            _createUserOperation(address(mew), userOpCalldata, address(credibleAccountModule), skp);
         // Execute the user operation
         _executeUserOperation(userOp);
         // Disable the session key
         credibleAccountModule.disableSessionKey(sk);
         // Verify no sessions for wallet
-        address[] memory walletSessions = credibleAccountModule
-            .getSessionKeysByWallet();
+        address[] memory walletSessions = credibleAccountModule.getSessionKeysByWallet();
         assertEq(walletSessions.length, 0);
         // Verify reset data for session key
-        SessionData memory sessionKeyData = credibleAccountModule
-            .getSessionKeyData(sk);
+        SessionData memory sessionKeyData = credibleAccountModule.getSessionKeyData(sk);
         console2.log("sessionKeyData.validUntil", sessionKeyData.validUntil);
         assertEq(sessionKeyData.validUntil, 0);
         // Verify no locked tokens for session key
-        ICAM.LockedToken[] memory lockedTokenData = credibleAccountModule
-            .getLockedTokensForSessionKey(sk);
+        ICAM.LockedToken[] memory lockedTokenData = credibleAccountModule.getLockedTokensForSessionKey(sk);
         assertEq(lockedTokenData.length, 0);
     }
 
-    function testFuzz_validateSessionKeyParams(
-        address _sessionKey,
-        bytes calldata _callData
-    ) public {
+    function testFuzz_validateSessionKeyParams(address _sessionKey, bytes calldata _callData) public {
         vm.assume(_sessionKey != address(0));
         // Enable a session key first
         _enableDefaultSessionKey(address(mew));
         PackedUserOperation memory userOp;
         userOp.callData = _callData;
         userOp.sender = address(mew);
-        bool isValid = credibleAccountModule.validateSessionKeyParams(
-            _sessionKey,
-            userOp
-        );
+        bool isValid = credibleAccountModule.validateSessionKeyParams(_sessionKey, userOp);
         if (_sessionKey == sessionKey) {
             // Additional checks based on _callData content could be added here
             assertTrue(isValid || !isValid);
@@ -182,9 +138,7 @@ contract CredibleAccountModule_Fuzz_Test is LocalTestUtils {
         }
     }
 
-    function testFuzz_claimingTokensBySolver(
-        uint256[3] memory _claimAmounts
-    ) public {
+    function testFuzz_claimingTokensBySolver(uint256[3] memory _claimAmounts) public {
         for (uint256 i; i < _claimAmounts.length; ++i) {
             vm.assume(_claimAmounts[i] > 0 && _claimAmounts[i] < 1000 ether);
         }
@@ -209,14 +163,9 @@ contract CredibleAccountModule_Fuzz_Test is LocalTestUtils {
         );
         credibleAccountModule.enableSessionKey(rl);
         // Claim tokens by solver
-        _claimTokensBySolver(
-            _claimAmounts[0],
-            _claimAmounts[1],
-            _claimAmounts[2]
-        );
+        _claimTokensBySolver(_claimAmounts[0], _claimAmounts[1], _claimAmounts[2]);
         // Verify tokens have been claimed
-        ICAM.LockedToken[] memory lockedTokens = credibleAccountModule
-            .getLockedTokensForSessionKey(sessionKey);
+        ICAM.LockedToken[] memory lockedTokens = credibleAccountModule.getLockedTokensForSessionKey(sessionKey);
         for (uint256 i; i < 3; ++i) {
             assertEq(lockedTokens[i].claimedAmount, _claimAmounts[i]);
         }
