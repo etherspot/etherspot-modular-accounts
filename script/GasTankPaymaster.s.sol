@@ -27,12 +27,13 @@ contract GasTankPaymasterScript is Script {
     //////////////////////////////////////////////////////////////*/
 
     // Address settings
+    address public constant DEPLOYER = 0x09FD4F6088f2025427AB1e89257A44747081Ed59;
     address payable public constant VERIFYING_SIGNER = payable(0x09FD4F6088f2025427AB1e89257A44747081Ed59);
-    address public constant SWAP_ROUTER_ADDRESS = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // Gnosis - Sushiswap SwapRouter
-    address public constant TOKEN_ADDRESS = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831; // Arb - USDC
-    address public constant WRAPPED_NATIVE_TOKEN_ADDRESS = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1; // Arb - wETH
-    address public constant TOKEN_ORACLE = 0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3; // Arb - USDC/USD (Chainlink)
-    address public constant NATIVE_TOKEN_ORACLE = 0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612; // Arb - ETH/USD (Chainlink)
+    address public constant SWAP_ROUTER_ADDRESS = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // OP - Sushiswap SwapRouter
+    address public constant TOKEN_ADDRESS = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85; // OP - USDC
+    address public constant WRAPPED_NATIVE_TOKEN_ADDRESS = 0x4200000000000000000000000000000000000006; // OP - wETH
+    address public constant TOKEN_ORACLE = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3; // OP - USDC/USD (Chainlink)
+    address public constant NATIVE_TOKEN_ORACLE = 0x13e3Ee699D1909E989722E753853AE30b17e08c5; // OP - ETH/USD (Chainlink)
     // PaymasterConfig settings
     uint256 public constant PRICE_MARKUP = 1e26 * 12 / 10; // 1.2x markup
     uint128 public constant MINIMUM_ENTRYPOINT_BALANCE = 0.0005 ether;
@@ -86,7 +87,14 @@ contract GasTankPaymasterScript is Script {
         console2.log("Deploying GasTankPaymaster...");
         // if (EXPECTED_GAS_TANK_PAYMASTER.code.length == 0) {
         GasTankPaymaster gasTankPaymaster = new GasTankPaymaster{salt: TEST_SALT}(
-            VERIFYING_SIGNER, ENTRY_POINT, SWAP_ROUTER, TOKEN, WRAPPED_NATIVE_TOKEN, paymasterConfig, uniswapConfig
+            DEPLOYER,
+            VERIFYING_SIGNER,
+            ENTRY_POINT,
+            SWAP_ROUTER,
+            TOKEN,
+            WRAPPED_NATIVE_TOKEN,
+            paymasterConfig,
+            uniswapConfig
         );
         // if (address(gasTankPaymaster) != EXPECTED_GAS_TANK_PAYMASTER) {
         //     revert("Unexpected GasTankPaymaster address!!!");

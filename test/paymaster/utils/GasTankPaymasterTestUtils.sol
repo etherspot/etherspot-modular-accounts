@@ -40,6 +40,8 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
     TestOracle internal nativeOracle;
 
     // Test addresses and keys
+    address internal deployer;
+    uint256 internal deployerKey;
     address internal user1;
     uint256 internal user1Key;
     address internal user2;
@@ -67,6 +69,7 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
 
     function _testSetup() internal {
         // Create test accounts
+        (deployer, deployerKey) = makeAddrAndKey("deployer");
         (user1, user1Key) = makeAddrAndKey("user1");
         (user2, user2Key) = makeAddrAndKey("user2");
         (verifyingSigner, verifyingSignerKey) = _makePayableAddrAndKey("verifyingSigner");
@@ -94,9 +97,11 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         usdt.mint(user1, USDT_INITIAL_MINT);
         usdt.mint(user2, USDT_INITIAL_MINT);
         usdt.mint(verifyingSigner, USDT_INITIAL_MINT);
+        vm.deal(deployer, 10000 ether);
         vm.deal(user1, 10 ether);
         vm.deal(user2, 10 ether);
         vm.deal(verifyingSigner, 10000 ether);
+        vm.startPrank(deployer);
         // Create paymaster configurations
         GasTankPaymaster.GasTankPaymasterConfig memory paymasterConfigUSDC = GasTankPaymaster.GasTankPaymasterConfig({
             tokenUsdFeed: IOracle(address(usdcOracle)),
@@ -123,8 +128,8 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         UniswapHelper.UniswapHelperConfig memory uniswapConfig =
             UniswapHelper.UniswapHelperConfig({minSwapAmount: 0.0001 ether, uniswapPoolFee: 3000, slippage: 50});
         // Deploy gas tank contracts
-        vm.startPrank(verifyingSigner);
         gasTankUSDC = new GasTankPaymaster(
+            deployer,
             verifyingSigner,
             entrypoint,
             ISwapRouter(address(uniswapV3)),
@@ -134,6 +139,7 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
             uniswapConfig
         );
         gasTankUSDT = new GasTankPaymaster(
+            deployer,
             verifyingSigner,
             entrypoint,
             ISwapRouter(address(uniswapV3)),
@@ -299,8 +305,12 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         currentConfig.minEPBalance = _minEPBalance;
         currentConfig.postOpCost = _postOpCost;
         currentConfig.priceMaxAge = _priceMaxAge;
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         _gasTank.configurePaymaster(currentConfig);
+    }
+
+    function _setVerifyingSigner(GasTankPaymaster _gasTank, address payable _newVerifyingSigner) internal {
+        _gasTank.setVerifyingSigner(_newVerifyingSigner);
     }
 
     function _setSwapRouter(GasTankPaymaster _gasTank, address _newSwapRouter) internal {

@@ -45,7 +45,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Address authorized to sign paymaster operations and manage the contract
-    address payable public immutable verifyingSigner;
+    address payable public verifyingSigner;
     /// @notice Current paymaster configuration
     GasTankPaymasterConfig private paymasterConfig;
     /// @notice Whether the paymaster is currently paused
@@ -98,6 +98,8 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     event GasTankPaymaster_PaymasterConfigUpdated(GasTankPaymasterConfig newConfig);
     /// @notice Emitted when minimum token balance for top-up is updated
     event GasTankPaymaster_MinVSTokenBalanceUpdated(uint256 oldMinBalance, uint256 newMinBalance);
+    /// @notice Emitted when verifying signer is updated
+    event GasTankPaymaster_VerifyingSignerUpdated(address verifyingSigner);
     /// @notice Emitted when swap router is updated
     event GasTankPaymaster_SwapRouterUpdated(address swapRouter);
     /// @notice Emitted when supported token is updated
@@ -155,8 +157,6 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
 
     /// @notice Thrown when contract is paused
     error GasTankPaymaster_IsPaused();
-    /// @notice Thrown when caller is not the verifying signer
-    error GasTankPaymaster_OnlyVerifyingSigner();
     /// @notice Thrown when price markup is too high
     error GasTankPaymaster_PriceMarkupTooHigh(uint256 markup);
     /// @notice Thrown when price markup is too low
@@ -171,8 +171,6 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     error GasTankPaymaster_InvalidAmount();
     /// @notice Thrown when user has insufficient balance
     error GasTankPaymaster_InsufficientBalance(address user, uint256 amount);
-    /// @notice Thrown when attempting to transfer to self
-    error GasTankPaymaster_SelfTransfer();
     /// @notice Thrown when attempting to recover tokens from self
     error GasTankPaymaster_NoTokensToRecover(address token);
     /// @notice Thrown when attempting to recover main token
@@ -191,18 +189,13 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         _;
     }
 
-    /// @notice Ensures caller is the verifying signer
-    modifier onlyVerifyingSigner() {
-        if (msg.sender != verifyingSigner) revert GasTankPaymaster_OnlyVerifyingSigner();
-        _;
-    }
-
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
     /**
      * @notice Initializes the GasTankPaymaster contract
+     * @param _owner Address of the contract owner
      * @param _verifyingSigner Address authorized to sign paymaster operations
      * @param _ep EntryPoint contract address
      * @param _swapRouter Uniswap V3 SwapRouter address
@@ -212,6 +205,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
      * @param _uniswapConfig Uniswap helper configuration
      */
     constructor(
+        address _owner,
         address payable _verifyingSigner,
         IEntryPoint _ep,
         ISwapRouter _swapRouter,
@@ -220,6 +214,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         GasTankPaymasterConfig memory _paymasterConfig,
         UniswapHelperConfig memory _uniswapConfig
     ) BasePaymaster(_ep) UniswapHelper(_token, _wrappedNative, _swapRouter, _uniswapConfig) {
+        if (_owner == address(0)) revert GasTankPaymaster_InvalidAddress();
         if (_verifyingSigner == address(0)) revert GasTankPaymaster_InvalidAddress();
         if (address(_ep) == address(0)) revert GasTankPaymaster_InvalidAddress();
         if (address(_swapRouter) == address(0)) revert GasTankPaymaster_InvalidAddress();
@@ -229,7 +224,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         if (address(_paymasterConfig.nativeUsdFeed) == address(0)) revert GasTankPaymaster_InvalidAddress();
         verifyingSigner = _verifyingSigner;
         configurePaymaster(_paymasterConfig);
-        transferOwnership(_verifyingSigner);
+        transferOwnership(_owner);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -253,14 +248,25 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
 
     /**
      * @notice Updates the minimum token balance required for top-up attempts
-     * @dev Only callable by the verifying signer for operational flexibility
+     * @dev Only callable by the owner for operational flexibility
      * @param _newMinBalance New minimum token balance
      */
-    function updateMinVSTokenBalance(uint256 _newMinBalance) external onlyVerifyingSigner {
+    function updateMinVSTokenBalance(uint256 _newMinBalance) external onlyOwner {
         if (_newMinBalance == 0) revert GasTankPaymaster_InvalidVSMinimumTopupBalance();
         uint256 oldMinBalance = paymasterConfig.minVSTokenBalance;
         paymasterConfig.minVSTokenBalance = _newMinBalance;
         emit GasTankPaymaster_MinVSTokenBalanceUpdated(oldMinBalance, _newMinBalance);
+    }
+
+    /**
+     * @notice Updates the verifying signer address
+     * @dev Only callable by the owner
+     * @param _verifyingSigner New verifying signer address
+     */
+    function setVerifyingSigner(address payable _verifyingSigner) external onlyOwner {
+        if (_verifyingSigner == address(0)) revert GasTankPaymaster_InvalidAddress();
+        verifyingSigner = _verifyingSigner;
+        emit GasTankPaymaster_VerifyingSignerUpdated(_verifyingSigner);
     }
 
     /**
@@ -335,14 +341,13 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
 
     /**
      * @notice Transfers tokens from a user's gas tank to the verifying signer's balance
-     * @dev Only callable by the verifying signer to collect payment for sponsored transactions
+     * @dev Only callable by the owner to collect payment for sponsored transactions
      * @param _from Address to transfer tokens from
      * @param _amount Amount of tokens to transfer
      */
-    function repaySponsoredTransaction(address _from, uint256 _amount) external onlyVerifyingSigner {
+    function repaySponsoredTransaction(address _from, uint256 _amount) external onlyOwner {
         if (_from == address(0)) revert GasTankPaymaster_InvalidAddress();
         if (_amount == 0) revert GasTankPaymaster_InvalidAmount();
-        if (_from == verifyingSigner) revert GasTankPaymaster_SelfTransfer();
         if (balances[_from] < _amount) revert GasTankPaymaster_InsufficientBalance(_from, _amount);
         balances[_from] -= _amount;
         balances[verifyingSigner] += _amount;
@@ -351,9 +356,9 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
 
     /**
      * @notice Manually triggers EntryPoint deposit top-up
-     * @dev Only callable by the verifying signer
+     * @dev Only callable by the owner
      */
-    function topUpEntryPointDeposit() external onlyVerifyingSigner {
+    function topUpEntryPointDeposit() external onlyOwner {
         uint256 cPrice = updateCachedPrice(false);
         _topUpEntryPointDeposit(cPrice);
     }
@@ -458,18 +463,18 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
 
     /**
      * @notice Pauses the paymaster, preventing new operations
-     * @dev Only callable by the verifying signer
+     * @dev Only callable by the owner
      */
-    function pause() external onlyVerifyingSigner {
+    function pause() external onlyOwner {
         paused = true;
         emit GasTankPaymaster_Paused();
     }
 
     /**
      * @notice Unpauses the paymaster, allowing operations to resume
-     * @dev Only callable by the verifying signer
+     * @dev Only callable by the owner
      */
-    function unpause() external onlyVerifyingSigner {
+    function unpause() external onlyOwner {
         paused = false;
         emit GasTankPaymaster_Unpaused();
     }
@@ -486,15 +491,6 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         return paymasterConfig;
     }
 
-    /**
-     * @notice Returns comprehensive paymaster status information
-     * @return entryPointBalance_ Current ETH balance in EntryPoint
-     * @return cachedTokenPrice_ Current cached token price
-     * @return priceTimestamp_ Timestamp of last price update
-     * @return verifyingSignerUSDCBalance_ Token balance of verifying signer
-     * @return needsTopUp_ Whether EntryPoint needs top-up
-     * @return isPaused_ Whether paymaster is paused
-     */
     /**
      * @notice Returns comprehensive paymaster status information
      * @return entryPointBalance_ Current ETH balance in EntryPoint
@@ -710,19 +706,20 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     }
 
     /**
-     * @notice Withdraws all native tokens from the contract balance to the verifying signer.
-     * @dev Only callable by the verifying signer. Convenience function for full withdrawal.
+     * @notice Withdraws all native tokens from the contract balance to the owner.
+     * @dev Only callable by the owner. Convenience function for full withdrawal.
+     * @param _to Address to send recovered tokens to
      */
-    function withdrawAllNative() external onlyVerifyingSigner {
+    function withdrawAllNative(address payable _to) external onlyOwner {
         uint256 nativeBalance = address(this).balance;
         uint256 wNativeBalance = wrappedNative.balanceOf(address(this));
         if (nativeBalance > 0) {
-            verifyingSigner.transfer(nativeBalance);
-            emit GasTankPaymaster_NativeWithdrawn(verifyingSigner, nativeBalance);
+            _to.transfer(nativeBalance);
+            emit GasTankPaymaster_NativeWithdrawn(_to, nativeBalance);
         }
         if (wNativeBalance > 0) {
-            SafeERC20.safeTransfer(wrappedNative, verifyingSigner, wNativeBalance);
-            emit GasTankPaymaster_WrappedNativeWithdrawn(verifyingSigner, wNativeBalance);
+            SafeERC20.safeTransfer(wrappedNative, _to, wNativeBalance);
+            emit GasTankPaymaster_WrappedNativeWithdrawn(_to, wNativeBalance);
         }
     }
 

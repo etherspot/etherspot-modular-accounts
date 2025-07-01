@@ -176,31 +176,31 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
 
     function test_pause_success() public {
         assertFalse(gasTankUSDC.isPaused());
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDC.pause();
         assertTrue(gasTankUSDC.isPaused());
     }
 
     function test_unpause_success() public {
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDC.pause();
         assertTrue(gasTankUSDC.isPaused());
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDC.unpause();
         assertFalse(gasTankUSDC.isPaused());
     }
 
-    function test_pause_revertWhen_notVerifyingSigner() public {
+    function test_pause_revertWhen_notOwner() public {
         vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSelector(GasTankPaymaster.GasTankPaymaster_OnlyVerifyingSigner.selector));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
         gasTankUSDC.pause();
     }
 
-    function test_unpause_revertWhen_notVerifyingSigner() public {
-        vm.prank(verifyingSigner);
+    function test_unpause_revertWhen_notOwner() public {
+        vm.prank(deployer);
         gasTankUSDC.pause();
         vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSelector(GasTankPaymaster.GasTankPaymaster_OnlyVerifyingSigner.selector));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
         gasTankUSDC.unpause();
         assertTrue(gasTankUSDC.isPaused());
     }
@@ -210,21 +210,29 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     //////////////////////////////////////////////////////////////*/
 
     function test_transferOwnership() public {
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         _transferOwnership(gasTankUSDC, user1);
         assertEq(gasTankUSDC.owner(), user1);
     }
 
+    function test_setVerifyingSigner() public {
+        (address payable newVerifyingSigner, uint256 newVerifyingSignerKey) =
+            _makePayableAddrAndKey("newVerifyingSigner");
+        vm.startPrank(deployer);
+        _setVerifyingSigner(gasTankUSDC, newVerifyingSigner);
+        assertEq(gasTankUSDC.verifyingSigner(), newVerifyingSigner);
+    }
+
     function test_setSwapRouter() public {
         address newSwapRouter = makeAddr("newSwapRouter");
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         _setSwapRouter(gasTankUSDC, newSwapRouter);
         assertEq(address(gasTankUSDC.uniswap()), newSwapRouter);
     }
 
     function test_setSupportedToken() public {
         address newToken = makeAddr("newToken");
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         _setSupportedToken(gasTankUSDC, newToken);
         assertEq(address(gasTankUSDC.supportedToken()), newToken);
     }
@@ -232,7 +240,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     function test_withdrawFromEntryPoint() public {
         uint256 withdrawAmount = 0.5 ether;
         uint256 initialDeposit = _getEntryPointDeposit(gasTankUSDC);
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         _withdrawFromEntryPoint(gasTankUSDC, beneficiary, withdrawAmount);
         uint256 newDeposit = _getEntryPointDeposit(gasTankUSDC);
         assertEq(newDeposit, initialDeposit - withdrawAmount);
@@ -253,7 +261,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
 
     function test_updateMinVSTokenBalance_success() public {
         uint256 newMinBalance = 5 * 10 ** 6; // 5 USDC
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectEmit(true, true, true, true);
         emit GasTankPaymaster_MinVSTokenBalanceUpdated(10 * 10 ** 6, newMinBalance);
         gasTankUSDC.updateMinVSTokenBalance(newMinBalance);
@@ -279,7 +287,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         uint256 tooLowMarkup = PRICE_DENOMINATOR * 9 / 10;
         GasTankPaymaster.GasTankPaymasterConfig memory testConfig = gasTankUSDC.getPaymasterConfig();
         testConfig.markup = tooLowMarkup;
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectRevert(
             abi.encodeWithSelector(GasTankPaymaster.GasTankPaymaster_PriceMarkupTooLow.selector, tooLowMarkup)
         );
@@ -290,27 +298,34 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         uint256 tooHighMarkup = PRICE_DENOMINATOR * 21 / 10;
         GasTankPaymaster.GasTankPaymasterConfig memory testConfig = gasTankUSDC.getPaymasterConfig();
         testConfig.markup = tooHighMarkup;
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectRevert(
             abi.encodeWithSelector(GasTankPaymaster.GasTankPaymaster_PriceMarkupTooHigh.selector, tooHighMarkup)
         );
         gasTankUSDC.configurePaymaster(testConfig);
     }
 
-    function test_updateMinVSTokenBalance_revertWhen_notVerifyingSigner() public {
+    function test_setVerifyingSigner_revertWhen_notOwner() public {
+        (address payable maliciousUser, uint256 maliciousKey) = _makePayableAddrAndKey("maliciousUser");
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        gasTankUSDC.setVerifyingSigner(maliciousUser);
+    }
+
+    function test_updateMinVSTokenBalance_revertWhen_notOwner() public {
         vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSelector(GasTankPaymaster.GasTankPaymaster_OnlyVerifyingSigner.selector));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
         gasTankUSDC.updateMinVSTokenBalance(5 * 10 ** 6);
     }
 
     function test_updateMinVSTokenBalance_revertWhen_invalidNewMinimumTopup() public {
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectRevert(abi.encodeWithSelector(GasTankPaymaster.GasTankPaymaster_InvalidVSMinimumTopupBalance.selector));
         gasTankUSDC.updateMinVSTokenBalance(0);
     }
 
     function test_addStake() public {
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(deployer);
         uint256 initStake = _getEntryPointStake(gasTankUSDC);
         uint256 stakeAmount = 1 ether;
         uint32 unstakeDelay = 86400;
@@ -322,7 +337,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
 
     function test_withdrawFromEntryPoint_revertWhen_insufficientDeposit() public {
         uint256 initialDeposit = _getEntryPointDeposit(gasTankUSDC);
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectRevert("Withdraw amount too large");
         gasTankUSDC.withdrawTo(beneficiary, initialDeposit + 1 ether);
     }
@@ -340,7 +355,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         }
         GasTankPaymaster.GasTankPaymasterConfig memory newConfig = gasTankUSDC.getPaymasterConfig();
         newConfig.minEPBalance = 0.1 ether;
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDC.configurePaymaster(newConfig);
         (,,,, bool needsTopUp,) = gasTankUSDC.getPaymasterStatus();
         assertFalse(needsTopUp);
@@ -468,7 +483,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     }
 
     function test_validatePaymasterUserOp_revertWhen_paused() public {
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDC.pause();
         PackedUserOperation memory userOp = _createBasicUserOp();
         vm.prank(address(entrypoint));
@@ -488,7 +503,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         uint256 initialFromBalance = gasTankUSDC.gasTankBalance(user1);
         uint256 initialVerifyingSignerBalance = gasTankUSDC.gasTankBalance(verifyingSigner);
         uint256 repayAmount = 500 * 10 ** 6;
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDC.repaySponsoredTransaction(user1, repayAmount);
         assertEq(gasTankUSDC.gasTankBalance(user1), initialFromBalance - repayAmount);
         assertEq(gasTankUSDC.gasTankBalance(verifyingSigner), initialVerifyingSignerBalance + repayAmount);
@@ -501,21 +516,14 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         gasTankUSDC.gasTankDeposit(depositAmount);
         vm.stopPrank();
         uint256 initialVerifyingSignerBalance = gasTankUSDC.gasTankBalance(verifyingSigner);
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDC.repaySponsoredTransaction(user1, depositAmount);
         assertEq(gasTankUSDC.gasTankBalance(user1), 0);
         assertEq(gasTankUSDC.gasTankBalance(verifyingSigner), initialVerifyingSignerBalance + depositAmount);
     }
 
-    function test_repaySponsoredTransaction_revertWhen_selfTransfer() public {
-        vm.startPrank(verifyingSigner);
-        vm.expectRevert(GasTankPaymaster.GasTankPaymaster_SelfTransfer.selector);
-        gasTankUSDC.repaySponsoredTransaction(verifyingSigner, 100 * 10 ** 6);
-        vm.stopPrank();
-    }
-
     function test_repaySponsoredTransaction_revertWhen_insufficientBalance() public {
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(deployer);
         vm.expectRevert(
             abi.encodeWithSelector(
                 GasTankPaymaster.GasTankPaymaster_InsufficientBalance.selector, user1, 1000 * 10 ** 6
@@ -526,13 +534,13 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     }
 
     function test_repaySponsoredTransaction_revertWhen_invalidAddress() public {
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectRevert(GasTankPaymaster.GasTankPaymaster_InvalidAddress.selector);
         gasTankUSDC.repaySponsoredTransaction(address(0), 100 * 10 ** 6);
     }
 
     function test_repaySponsoredTransaction_revertWhen_invalidAmount() public {
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectRevert(GasTankPaymaster.GasTankPaymaster_InvalidAmount.selector);
         gasTankUSDC.repaySponsoredTransaction(user1, 0);
     }
@@ -623,7 +631,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         vm.stopPrank();
         _depositToGasTank(gasTankUSDC, address(usdc), verifyingSigner, 200 * 10 ** 6);
         _depositToGasTank(gasTankUSDC, address(usdc), user1, 100 * 10 ** 6);
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(deployer);
         TestOracle(address(usdcOracle)).configurePrice(1e8);
         TestOracle(address(nativeOracle)).configurePrice(2000e8);
         gasTankUSDC.updateCachedPrice(true);
@@ -664,7 +672,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     function test_getPaymasterStatus_needsTopUp_true() public {
         GasTankPaymaster.GasTankPaymasterConfig memory newConfig = gasTankUSDC.getPaymasterConfig();
         newConfig.minEPBalance = 10000 ether;
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDC.configurePaymaster(newConfig);
         (,,,, bool needsTopUp,) = gasTankUSDC.getPaymasterStatus();
         assertTrue(needsTopUp);
@@ -709,13 +717,13 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         newConfig.minEPBalance = 2 ether;
         newConfig.postOpCost = 35000;
         newConfig.priceMaxAge = 25 hours;
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDC.configurePaymaster(newConfig);
         vm.deal(address(weth), 100 ether);
         _depositToGasTank(gasTankUSDC, address(usdc), verifyingSigner, 20 * 10 ** 6);
         usdc.mint(address(mew), 100 * 10 ** 6);
         _depositToGasTank(gasTankUSDC, address(usdc), address(mew), 10 * 10 ** 6);
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(deployer);
         usdcOracle.configurePrice(1e8); // $1 USDT
         nativeOracle.configurePrice(2000e8); // $2000 ETH
         uint256 updatedPrice = gasTankUSDC.updateCachedPrice(true);
@@ -780,13 +788,13 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         newConfig.minEPBalance = 2 ether;
         newConfig.postOpCost = 35000;
         newConfig.priceMaxAge = 1 hours;
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDT.configurePaymaster(newConfig);
         vm.deal(address(weth), 100 ether);
         _depositToGasTank(gasTankUSDT, address(usdt), verifyingSigner, 20 * 10 ** 18);
         usdt.mint(address(mew), 100 * 10 ** 18);
         _depositToGasTank(gasTankUSDT, address(usdt), address(mew), 10 * 10 ** 18);
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(deployer);
         usdtOracle.configurePrice(1e8); // $1 USDT
         nativeOracle.configurePrice(2000e8); // $2000 ETH
         uint256 updatedPrice = gasTankUSDT.updateCachedPrice(true);
@@ -825,20 +833,20 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         uint256 tokenAmount = 100 * 10 ** 18;
         unsupportedToken.mint(address(gasTankUSDC), tokenAmount);
         uint256 initialBalance = unsupportedToken.balanceOf(beneficiary);
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDC.emergencyUnsupportedTokenRecovery(IERC20(address(unsupportedToken)), beneficiary);
         assertEq(unsupportedToken.balanceOf(beneficiary), initialBalance + tokenAmount);
         assertEq(unsupportedToken.balanceOf(address(gasTankUSDC)), 0);
     }
 
     function test_emergencyUnsupportedTokenRecovery_revertWhen_mainToken() public {
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectRevert(GasTankPaymaster.GasTankPaymaster_CannotRecoverMainToken.selector);
         gasTankUSDC.emergencyUnsupportedTokenRecovery(IERC20(address(usdc)), beneficiary);
     }
 
     function test_emergencyUnsupportedTokenRecovery_revertWhen_WETH() public {
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectRevert(GasTankPaymaster.GasTankPaymaster_CannotRecoverWETH.selector);
         gasTankUSDC.emergencyUnsupportedTokenRecovery(IERC20(address(weth)), beneficiary);
     }
@@ -853,7 +861,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
 
     function test_emergencyUnsupportedTokenRecovery_revertWhen_noTokensToRecover() public {
         TestERC20 unsupportedToken = new TestERC20();
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectRevert(
             abi.encodeWithSelector(
                 GasTankPaymaster.GasTankPaymaster_NoTokensToRecover.selector, address(unsupportedToken)
@@ -870,10 +878,10 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         assertTrue(success);
         assertEq(address(gasTankUSDC).balance, nAmount);
         uint256 vsNativeBalancePre = address(verifyingSigner).balance;
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectEmit(true, true, true, false);
         emit GasTankPaymaster_NativeWithdrawn(address(verifyingSigner), nAmount);
-        gasTankUSDC.withdrawAllNative();
+        gasTankUSDC.withdrawAllNative(verifyingSigner);
         uint256 vsNativeBalancePost = address(verifyingSigner).balance;
         assertEq(address(gasTankUSDC).balance, 0);
         assertEq(vsNativeBalancePost, vsNativeBalancePre + nAmount);
@@ -887,10 +895,10 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         vm.stopPrank();
         assertEq(weth.balanceOf(address(gasTankUSDC)), wnAmount);
         uint256 vsWrappedNativeBalancePre = weth.balanceOf(address(verifyingSigner));
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectEmit(true, true, true, false);
         emit GasTankPaymaster_WrappedNativeWithdrawn(address(verifyingSigner), wnAmount);
-        gasTankUSDC.withdrawAllNative();
+        gasTankUSDC.withdrawAllNative(verifyingSigner);
         uint256 vsWrappedNativeBalancePost = weth.balanceOf(address(verifyingSigner));
         assertEq(weth.balanceOf(address(gasTankUSDC)), 0);
         assertEq(vsWrappedNativeBalancePost, vsWrappedNativeBalancePre + wnAmount);
@@ -910,12 +918,12 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         assertEq(weth.balanceOf(address(gasTankUSDC)), wnAmount);
         uint256 vsNativeBalancePre = address(verifyingSigner).balance;
         uint256 vsWrappedNativeBalancePre = weth.balanceOf(address(verifyingSigner));
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         vm.expectEmit(true, true, true, false);
         emit GasTankPaymaster_NativeWithdrawn(address(verifyingSigner), nAmount);
         vm.expectEmit(true, true, true, false);
         emit GasTankPaymaster_WrappedNativeWithdrawn(address(verifyingSigner), wnAmount);
-        gasTankUSDC.withdrawAllNative();
+        gasTankUSDC.withdrawAllNative(verifyingSigner);
         uint256 vsNativeBalancePost = address(verifyingSigner).balance;
         uint256 vsWrappedNativeBalancePost = weth.balanceOf(address(verifyingSigner));
         assertEq(address(gasTankUSDC).balance, 0);
@@ -924,7 +932,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         assertEq(vsWrappedNativeBalancePost, vsWrappedNativeBalancePre + wnAmount);
     }
 
-    function test_withdrawAllNative_revertWhen_notVerifyingSigner() public {
+    function test_withdrawAllNative_revertWhen_notOwner() public {
         uint256 nAmount = 1 ether;
         vm.deal(user1, nAmount);
         vm.prank(user1);
@@ -932,9 +940,9 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         assertTrue(success);
         assertEq(address(gasTankUSDC).balance, nAmount);
         uint256 vsNativeBalancePre = address(verifyingSigner).balance;
-        vm.prank(user1);
-        vm.expectRevert(GasTankPaymaster.GasTankPaymaster_OnlyVerifyingSigner.selector);
-        gasTankUSDC.withdrawAllNative();
+        vm.prank(verifyingSigner);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, verifyingSigner));
+        gasTankUSDC.withdrawAllNative(verifyingSigner);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -956,7 +964,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         GasTankPaymaster.GasTankPaymasterConfig memory newConfig = gasTankUSDC.getPaymasterConfig();
         newConfig.minEPBalance = 2 ether;
         newConfig.priceMaxAge = 25 hours;
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDT.configurePaymaster(newConfig);
         vm.startPrank(address(uniswapV3));
         // Drain all USDT/WETH from the mock exchange to cause swap failure
@@ -972,7 +980,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         _depositToGasTank(gasTankUSDT, address(usdt), verifyingSigner, 1e18);
         usdt.mint(address(mew), 100 * 10 ** 18);
         _depositToGasTank(gasTankUSDT, address(usdt), address(mew), 10 * 10 ** 18);
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(deployer);
         usdtOracle.configurePrice(1e8);
         nativeOracle.configurePrice(2000e8);
         gasTankUSDT.updateCachedPrice(true);
@@ -1010,7 +1018,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         newConfig.minEPBalance = 2 ether;
         newConfig.priceMaxAge = 25 hours;
         newConfig.minVSTokenBalance = 2 * 10 ** 18; // Set to 2 USDT to trigger insufficient
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDT.configurePaymaster(newConfig);
         // Give verifying signer EXACTLY the minimum token balance (1e18 for 18-decimal token)
         // This will trigger: vsBalance <= minTokenBalance
@@ -1018,7 +1026,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         _depositToGasTank(gasTankUSDT, address(usdt), verifyingSigner, minTokenBalance);
         usdt.mint(address(mew), 100 * 10 ** 18);
         _depositToGasTank(gasTankUSDT, address(usdt), address(mew), 10 * 10 ** 18);
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(deployer);
         usdtOracle.configurePrice(1e8); // $1 USDT
         nativeOracle.configurePrice(2000e8); // $2000 ETH
         gasTankUSDT.updateCachedPrice(true);
@@ -1060,12 +1068,12 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         GasTankPaymaster.GasTankPaymasterConfig memory newConfig = gasTankUSDC.getPaymasterConfig();
         newConfig.minEPBalance = 2 ether;
         newConfig.priceMaxAge = 1 hours; // Short max age for easy staleness
-        vm.prank(verifyingSigner);
+        vm.prank(deployer);
         gasTankUSDT.configurePaymaster(newConfig);
         _depositToGasTank(gasTankUSDT, address(usdt), verifyingSigner, 10 * 10 ** 18);
         usdt.mint(address(mew), 100 * 10 ** 18);
         _depositToGasTank(gasTankUSDT, address(usdt), address(mew), 10 * 10 ** 18);
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(deployer);
         usdtOracle.configurePrice(1e8); // $1 USDT
         nativeOracle.configurePrice(2000e8); // $2000 ETH
         gasTankUSDT.updateCachedPrice(true);
