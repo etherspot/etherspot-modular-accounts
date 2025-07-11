@@ -17,7 +17,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
                              HELPER EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event GasTankPaymaster_MinVSTokenBalanceUpdated(uint256 oldMinBalance, uint256 newMinBalance);
+    event GasTankPaymaster_MinFeeReceiverTokenBalanceUpdated(uint256 oldMinBalance, uint256 newMinBalance);
     event GasTankPaymaster_InsufficientBalanceButTopUpRequired(uint256 currentBalance, uint256 minRequired);
     event GasTankPaymaster_TopUpSkippedDueToStalePrice();
     event GasTankPaymaster_NativeWithdrawn(address indexed to, uint256 amount);
@@ -223,6 +223,13 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         assertEq(gasTankUSDC.verifyingSigner(), newVerifyingSigner);
     }
 
+    function test_setFeeReceiver() public {
+        (address payable newFeeReceiver, uint256 newFeeReceiverKey) = _makePayableAddrAndKey("newFeeReceiver");
+        vm.startPrank(deployer);
+        _setFeeReceiver(gasTankUSDC, newFeeReceiver);
+        assertEq(gasTankUSDC.feeReceiver(), newFeeReceiver);
+    }
+
     function test_setSwapRouter() public {
         address newSwapRouter = makeAddr("newSwapRouter");
         vm.prank(deployer);
@@ -259,14 +266,14 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         assertEq(config.priceMaxAge, newPriceMaxAge);
     }
 
-    function test_updateMinVSTokenBalance_success() public {
+    function test_updateMinFeeReceiverTokenBalance_success() public {
         uint256 newMinBalance = 5 * 10 ** 6; // 5 USDC
         vm.prank(deployer);
         vm.expectEmit(true, true, true, true);
-        emit GasTankPaymaster_MinVSTokenBalanceUpdated(10 * 10 ** 6, newMinBalance);
-        gasTankUSDC.updateMinVSTokenBalance(newMinBalance);
+        emit GasTankPaymaster_MinFeeReceiverTokenBalanceUpdated(10 * 10 ** 6, newMinBalance);
+        gasTankUSDC.updateMinFeeReceiverTokenBalance(newMinBalance);
         GasTankPaymaster.GasTankPaymasterConfig memory config = gasTankUSDC.getPaymasterConfig();
-        assertEq(config.minVSTokenBalance, newMinBalance);
+        assertEq(config.minFeeReceiverTokenBalance, newMinBalance);
     }
 
     function test_transferOwnership_revertWhen_notOwner() public {
@@ -312,16 +319,25 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         gasTankUSDC.setVerifyingSigner(maliciousUser);
     }
 
-    function test_updateMinVSTokenBalance_revertWhen_notOwner() public {
-        vm.prank(user1);
+    function test_setFeeReceiver_revertWhen_notOwner() public {
+        (address payable maliciousUser, uint256 maliciousKey) = _makePayableAddrAndKey("maliciousUser");
+        vm.startPrank(user1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
-        gasTankUSDC.updateMinVSTokenBalance(5 * 10 ** 6);
+        gasTankUSDC.setFeeReceiver(maliciousUser);
     }
 
-    function test_updateMinVSTokenBalance_revertWhen_invalidNewMinimumTopup() public {
+    function test_updateMinFeeReceiverTokenBalance_revertWhen_notOwner() public {
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        gasTankUSDC.updateMinFeeReceiverTokenBalance(5 * 10 ** 6);
+    }
+
+    function test_updateMinFeeReceiverTokenBalance_revertWhen_invalidNewMinimumTopup() public {
         vm.prank(deployer);
-        vm.expectRevert(abi.encodeWithSelector(GasTankPaymaster.GasTankPaymaster_InvalidVSMinimumTopupBalance.selector));
-        gasTankUSDC.updateMinVSTokenBalance(0);
+        vm.expectRevert(
+            abi.encodeWithSelector(GasTankPaymaster.GasTankPaymaster_InvalidFeeReceiverMinimumTopupBalance.selector)
+        );
+        gasTankUSDC.updateMinFeeReceiverTokenBalance(0);
     }
 
     function test_addStake() public {
@@ -501,12 +517,12 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         gasTankUSDC.gasTankDeposit(1000 * 10 ** 6);
         vm.stopPrank();
         uint256 initialFromBalance = gasTankUSDC.gasTankBalance(user1);
-        uint256 initialVerifyingSignerBalance = gasTankUSDC.gasTankBalance(verifyingSigner);
+        uint256 initialFeeReceiverBalance = gasTankUSDC.gasTankBalance(feeReceiver);
         uint256 repayAmount = 500 * 10 ** 6;
         vm.prank(deployer);
         gasTankUSDC.repaySponsoredTransaction(user1, repayAmount);
         assertEq(gasTankUSDC.gasTankBalance(user1), initialFromBalance - repayAmount);
-        assertEq(gasTankUSDC.gasTankBalance(verifyingSigner), initialVerifyingSignerBalance + repayAmount);
+        assertEq(gasTankUSDC.gasTankBalance(feeReceiver), initialFeeReceiverBalance + repayAmount);
     }
 
     function test_repaySponsoredTransaction_exactBalance() public {
@@ -515,11 +531,11 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         usdc.approve(address(gasTankUSDC), depositAmount);
         gasTankUSDC.gasTankDeposit(depositAmount);
         vm.stopPrank();
-        uint256 initialVerifyingSignerBalance = gasTankUSDC.gasTankBalance(verifyingSigner);
+        uint256 initialFeeReceiverBalance = gasTankUSDC.gasTankBalance(feeReceiver);
         vm.prank(deployer);
         gasTankUSDC.repaySponsoredTransaction(user1, depositAmount);
         assertEq(gasTankUSDC.gasTankBalance(user1), 0);
-        assertEq(gasTankUSDC.gasTankBalance(verifyingSigner), initialVerifyingSignerBalance + depositAmount);
+        assertEq(gasTankUSDC.gasTankBalance(feeReceiver), initialFeeReceiverBalance + depositAmount);
     }
 
     function test_repaySponsoredTransaction_revertWhen_insufficientBalance() public {
@@ -550,7 +566,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     //////////////////////////////////////////////////////////////*/
 
     function test_updateCachedPrice_invalidTokenPrice() public {
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(feeReceiver);
         TestOracle(address(usdcOracle)).configurePrice(0);
         TestOracle(address(nativeOracle)).configurePrice(2000e8);
         uint256 result = gasTankUSDC.updateCachedPrice(true);
@@ -559,7 +575,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     }
 
     function test_updateCachedPrice_invalidNativePrice() public {
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(feeReceiver);
         TestOracle(address(usdcOracle)).configurePrice(1e8);
         TestOracle(address(nativeOracle)).configurePrice(-100e8);
         uint256 result = gasTankUSDC.updateCachedPrice(true);
@@ -568,7 +584,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     }
 
     function test_updateCachedPrice_staleTokenPrice() public {
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(feeReceiver);
         uint256 oldTimestamp = block.timestamp;
         TestOracle(address(usdcOracle)).configurePrice(1e8);
         TestOracle(address(usdcOracle)).configureUpdatedAt(oldTimestamp);
@@ -581,7 +597,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     }
 
     function test_updateCachedPrice_staleNativePrice() public {
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(feeReceiver);
         uint256 oldTimestamp = block.timestamp;
         TestOracle(address(usdcOracle)).configurePrice(1e8);
         TestOracle(address(nativeOracle)).configurePrice(2000e8);
@@ -594,7 +610,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     }
 
     function test_updateCachedPrice_oracleRevert() public {
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(feeReceiver);
         TestOracle(address(usdcOracle)).configureShouldRevert(true);
         uint256 result = gasTankUSDC.updateCachedPrice(true);
         assertEq(result, 0);
@@ -602,7 +618,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     }
 
     function test_updateCachedPrice_oracleReturnsZero() public {
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(feeReceiver);
         TestOracle(address(usdcOracle)).configurePrice(0);
         TestOracle(address(nativeOracle)).configurePrice(2000e8);
         uint256 result = gasTankUSDC.updateCachedPrice(true);
@@ -611,7 +627,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     }
 
     function test_updateCachedPrice_oracleReturnsNegative() public {
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(feeReceiver);
         TestOracle(address(usdcOracle)).configurePrice(-1e8);
         TestOracle(address(nativeOracle)).configurePrice(2000e8);
         uint256 result = gasTankUSDC.updateCachedPrice(true);
@@ -629,7 +645,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         vm.deal(address(uniswapV3), 25 ether);
         weth.deposit{value: 25 ether}();
         vm.stopPrank();
-        _depositToGasTank(gasTankUSDC, address(usdc), verifyingSigner, 200 * 10 ** 6);
+        _depositToGasTank(gasTankUSDC, address(usdc), feeReceiver, 200 * 10 ** 6);
         _depositToGasTank(gasTankUSDC, address(usdc), user1, 100 * 10 ** 6);
         vm.startPrank(deployer);
         TestOracle(address(usdcOracle)).configurePrice(1e8);
@@ -640,7 +656,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         gasTankUSDC.topUpEntryPointDeposit();
         uint256 currentBalance = gasTankUSDC.getDeposit();
         assertGt(currentBalance, 1 ether);
-        assertEq(gasTankUSDC.gasTankBalance(verifyingSigner), 0);
+        assertEq(gasTankUSDC.gasTankBalance(feeReceiver), 0);
         vm.stopPrank();
     }
 
@@ -649,22 +665,22 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     //////////////////////////////////////////////////////////////*/
 
     function test_getPaymasterStatus_basicInfo() public {
-        vm.startPrank(verifyingSigner);
+        vm.startPrank(feeReceiver);
         usdcOracle.configurePrice(1e8); // $1 USDT
         nativeOracle.configurePrice(2000e8); // $2000 ETH
         uint256 updatedPrice = gasTankUSDC.updateCachedPrice(true);
         assertGt(updatedPrice, 0, "Price update should succeed");
-        _depositToGasTank(gasTankUSDC, address(usdc), verifyingSigner, 500 * 10 ** 6);
+        _depositToGasTank(gasTankUSDC, address(usdc), feeReceiver, 500 * 10 ** 6);
         (
             uint256 entryPointBalance,
             uint256 cachedTokenPrice,
             uint48 priceTimestamp,
-            uint256 verifyingSignerUSDCBalance,
+            uint256 feeReceiverUSDCBalance,
             bool needsTopUp,
             bool isPaused
         ) = gasTankUSDC.getPaymasterStatus();
         assertEq(cachedTokenPrice, 5e22);
-        assertEq(verifyingSignerUSDCBalance, 500 * 10 ** 6);
+        assertEq(feeReceiverUSDCBalance, 500 * 10 ** 6);
         assertEq(entryPointBalance, entrypoint.balanceOf(address(gasTankUSDC)));
         assertFalse(isPaused);
     }
@@ -720,7 +736,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         vm.prank(deployer);
         gasTankUSDC.configurePaymaster(newConfig);
         vm.deal(address(weth), 100 ether);
-        _depositToGasTank(gasTankUSDC, address(usdc), verifyingSigner, 20 * 10 ** 6);
+        _depositToGasTank(gasTankUSDC, address(usdc), feeReceiver, 20 * 10 ** 6);
         usdc.mint(address(mew), 100 * 10 ** 6);
         _depositToGasTank(gasTankUSDC, address(usdc), address(mew), 10 * 10 ** 6);
         vm.startPrank(deployer);
@@ -791,7 +807,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         vm.prank(deployer);
         gasTankUSDT.configurePaymaster(newConfig);
         vm.deal(address(weth), 100 ether);
-        _depositToGasTank(gasTankUSDT, address(usdt), verifyingSigner, 20 * 10 ** 18);
+        _depositToGasTank(gasTankUSDT, address(usdt), feeReceiver, 20 * 10 ** 18);
         usdt.mint(address(mew), 100 * 10 ** 18);
         _depositToGasTank(gasTankUSDT, address(usdt), address(mew), 10 * 10 ** 18);
         vm.startPrank(deployer);
@@ -877,14 +893,14 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         (bool success,) = address(gasTankUSDC).call{value: nAmount}("");
         assertTrue(success);
         assertEq(address(gasTankUSDC).balance, nAmount);
-        uint256 vsNativeBalancePre = address(verifyingSigner).balance;
+        uint256 frNativeBalancePre = address(feeReceiver).balance;
         vm.prank(deployer);
         vm.expectEmit(true, true, true, false);
-        emit GasTankPaymaster_NativeWithdrawn(address(verifyingSigner), nAmount);
-        gasTankUSDC.withdrawAllNative(verifyingSigner);
-        uint256 vsNativeBalancePost = address(verifyingSigner).balance;
+        emit GasTankPaymaster_NativeWithdrawn(address(feeReceiver), nAmount);
+        gasTankUSDC.withdrawAllNative(feeReceiver);
+        uint256 frNativeBalancePost = address(feeReceiver).balance;
         assertEq(address(gasTankUSDC).balance, 0);
-        assertEq(vsNativeBalancePost, vsNativeBalancePre + nAmount);
+        assertEq(frNativeBalancePost, frNativeBalancePre + nAmount);
     }
 
     function test_withdrawAllNative_wrappedNative() public {
@@ -894,14 +910,14 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         weth.transfer(address(gasTankUSDC), wnAmount);
         vm.stopPrank();
         assertEq(weth.balanceOf(address(gasTankUSDC)), wnAmount);
-        uint256 vsWrappedNativeBalancePre = weth.balanceOf(address(verifyingSigner));
+        uint256 frWrappedNativeBalancePre = weth.balanceOf(address(feeReceiver));
         vm.prank(deployer);
         vm.expectEmit(true, true, true, false);
-        emit GasTankPaymaster_WrappedNativeWithdrawn(address(verifyingSigner), wnAmount);
-        gasTankUSDC.withdrawAllNative(verifyingSigner);
-        uint256 vsWrappedNativeBalancePost = weth.balanceOf(address(verifyingSigner));
+        emit GasTankPaymaster_WrappedNativeWithdrawn(address(feeReceiver), wnAmount);
+        gasTankUSDC.withdrawAllNative(feeReceiver);
+        uint256 frWrappedNativeBalancePost = weth.balanceOf(address(feeReceiver));
         assertEq(weth.balanceOf(address(gasTankUSDC)), 0);
-        assertEq(vsWrappedNativeBalancePost, vsWrappedNativeBalancePre + wnAmount);
+        assertEq(frWrappedNativeBalancePost, frWrappedNativeBalancePre + wnAmount);
     }
 
     function test_withdrawAllNative_both() public {
@@ -916,20 +932,20 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         vm.stopPrank();
         assertEq(address(gasTankUSDC).balance, nAmount);
         assertEq(weth.balanceOf(address(gasTankUSDC)), wnAmount);
-        uint256 vsNativeBalancePre = address(verifyingSigner).balance;
-        uint256 vsWrappedNativeBalancePre = weth.balanceOf(address(verifyingSigner));
+        uint256 frNativeBalancePre = address(feeReceiver).balance;
+        uint256 frWrappedNativeBalancePre = weth.balanceOf(address(feeReceiver));
         vm.prank(deployer);
         vm.expectEmit(true, true, true, false);
-        emit GasTankPaymaster_NativeWithdrawn(address(verifyingSigner), nAmount);
+        emit GasTankPaymaster_NativeWithdrawn(address(feeReceiver), nAmount);
         vm.expectEmit(true, true, true, false);
-        emit GasTankPaymaster_WrappedNativeWithdrawn(address(verifyingSigner), wnAmount);
-        gasTankUSDC.withdrawAllNative(verifyingSigner);
-        uint256 vsNativeBalancePost = address(verifyingSigner).balance;
-        uint256 vsWrappedNativeBalancePost = weth.balanceOf(address(verifyingSigner));
+        emit GasTankPaymaster_WrappedNativeWithdrawn(address(feeReceiver), wnAmount);
+        gasTankUSDC.withdrawAllNative(feeReceiver);
+        uint256 frNativeBalancePost = address(feeReceiver).balance;
+        uint256 frWrappedNativeBalancePost = weth.balanceOf(address(feeReceiver));
         assertEq(address(gasTankUSDC).balance, 0);
         assertEq(weth.balanceOf(address(gasTankUSDC)), 0);
-        assertEq(vsNativeBalancePost, vsNativeBalancePre + nAmount);
-        assertEq(vsWrappedNativeBalancePost, vsWrappedNativeBalancePre + wnAmount);
+        assertEq(frNativeBalancePost, frNativeBalancePre + nAmount);
+        assertEq(frWrappedNativeBalancePost, frWrappedNativeBalancePre + wnAmount);
     }
 
     function test_withdrawAllNative_revertWhen_notOwner() public {
@@ -939,10 +955,9 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         (bool success,) = address(gasTankUSDC).call{value: nAmount}("");
         assertTrue(success);
         assertEq(address(gasTankUSDC).balance, nAmount);
-        uint256 vsNativeBalancePre = address(verifyingSigner).balance;
-        vm.prank(verifyingSigner);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, verifyingSigner));
-        gasTankUSDC.withdrawAllNative(verifyingSigner);
+        vm.prank(feeReceiver);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, feeReceiver));
+        gasTankUSDC.withdrawAllNative(feeReceiver);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -977,7 +992,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
             weth.transfer(address(1), wethBalance); // Send to burn address
         }
         vm.stopPrank();
-        _depositToGasTank(gasTankUSDT, address(usdt), verifyingSigner, 1e18);
+        _depositToGasTank(gasTankUSDT, address(usdt), feeReceiver, 1e18);
         usdt.mint(address(mew), 100 * 10 ** 18);
         _depositToGasTank(gasTankUSDT, address(usdt), address(mew), 10 * 10 ** 18);
         vm.startPrank(deployer);
@@ -1005,11 +1020,11 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         PackedUserOperation[] memory userOps = new PackedUserOperation[](1);
         userOps[0] = userOp;
         entrypoint.handleOps(userOps, beneficiary);
-        uint256 finalEPBalance = gasTankUSDT.getDeposit();
-        uint256 finalVSBalance = gasTankUSDT.gasTankBalance(verifyingSigner);
-        assertLt(finalEPBalance, currentBalance);
-        assertEq(finalVSBalance, 1 * 10 ** 18);
-        assertLt(finalEPBalance, 2 ether);
+        uint256 finalEpBalance = gasTankUSDT.getDeposit();
+        uint256 finalFrBalance = gasTankUSDT.gasTankBalance(feeReceiver);
+        assertLt(finalEpBalance, currentBalance);
+        assertEq(finalFrBalance, 1 * 10 ** 18);
+        assertLt(finalEpBalance, 2 ether);
     }
 
     function test_automaticTopUp_USDT_insufficientBalance_butUserOpSucceeds() public {
@@ -1017,13 +1032,13 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         GasTankPaymaster.GasTankPaymasterConfig memory newConfig = gasTankUSDC.getPaymasterConfig();
         newConfig.minEPBalance = 2 ether;
         newConfig.priceMaxAge = 25 hours;
-        newConfig.minVSTokenBalance = 2 * 10 ** 18; // Set to 2 USDT to trigger insufficient
+        newConfig.minFeeReceiverTokenBalance = 2 * 10 ** 18; // Set to 2 USDT to trigger insufficient
         vm.prank(deployer);
         gasTankUSDT.configurePaymaster(newConfig);
         // Give verifying signer EXACTLY the minimum token balance (1e18 for 18-decimal token)
-        // This will trigger: vsBalance <= minTokenBalance
+        // This will trigger: frBalance <= minTokenBalance
         uint256 minTokenBalance = 10 ** 18; // 1e18 for USDT (18 decimals)
-        _depositToGasTank(gasTankUSDT, address(usdt), verifyingSigner, minTokenBalance);
+        _depositToGasTank(gasTankUSDT, address(usdt), feeReceiver, minTokenBalance);
         usdt.mint(address(mew), 100 * 10 ** 18);
         _depositToGasTank(gasTankUSDT, address(usdt), address(mew), 10 * 10 ** 18);
         vm.startPrank(deployer);
@@ -1055,11 +1070,11 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         vm.expectEmit(true, true, true, true);
         emit GasTankPaymaster_InsufficientBalanceButTopUpRequired(minTokenBalance, 2 * 10 ** 18);
         entrypoint.handleOps(userOps, beneficiary);
-        uint256 finalEPBalance = gasTankUSDT.getDeposit();
-        uint256 finalVSBalance = gasTankUSDT.gasTankBalance(verifyingSigner);
-        assertLt(finalEPBalance, currentBalance, "EntryPoint balance should decrease due to gas consumption");
-        assertEq(finalVSBalance, minTokenBalance, "VerifyingSigner balance should be unchanged - no top-up attempted");
-        assertLt(finalEPBalance, 2 ether, "Should still be below minimum threshold since top-up was skipped");
+        uint256 finalEpBalance = gasTankUSDT.getDeposit();
+        uint256 finalFrBalance = gasTankUSDT.gasTankBalance(feeReceiver);
+        assertLt(finalEpBalance, currentBalance, "EntryPoint balance should decrease due to gas consumption");
+        assertEq(finalFrBalance, minTokenBalance, "feeReceiver balance should be unchanged - no top-up attempted");
+        assertLt(finalEpBalance, 2 ether, "Should still be below minimum threshold since top-up was skipped");
         assertTrue(true, "User operation should succeed despite insufficient balance for top-up");
     }
 
@@ -1070,7 +1085,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         newConfig.priceMaxAge = 1 hours; // Short max age for easy staleness
         vm.prank(deployer);
         gasTankUSDT.configurePaymaster(newConfig);
-        _depositToGasTank(gasTankUSDT, address(usdt), verifyingSigner, 10 * 10 ** 18);
+        _depositToGasTank(gasTankUSDT, address(usdt), feeReceiver, 10 * 10 ** 18);
         usdt.mint(address(mew), 100 * 10 ** 18);
         _depositToGasTank(gasTankUSDT, address(usdt), address(mew), 10 * 10 ** 18);
         vm.startPrank(deployer);
@@ -1102,13 +1117,13 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         vm.expectEmit(true, true, true, true);
         emit GasTankPaymaster_TopUpSkippedDueToStalePrice();
         entrypoint.handleOps(userOps, beneficiary);
-        uint256 finalEPBalance = gasTankUSDT.getDeposit();
-        uint256 finalVSBalance = gasTankUSDT.gasTankBalance(verifyingSigner);
-        assertLt(finalEPBalance, currentBalance, "EntryPoint balance should decrease due to gas consumption");
+        uint256 finalEpBalance = gasTankUSDT.getDeposit();
+        uint256 finalFrBalance = gasTankUSDT.gasTankBalance(feeReceiver);
+        assertLt(finalEpBalance, currentBalance, "EntryPoint balance should decrease due to gas consumption");
         assertEq(
-            finalVSBalance, 10 * 10 ** 18, "VerifyingSigner balance should be unchanged - no top-up due to stale price"
+            finalFrBalance, 10 * 10 ** 18, "feeReceiver balance should be unchanged - no top-up due to stale price"
         );
-        assertLt(finalEPBalance, 2 ether, "Should still be below minimum threshold since top-up was skipped");
+        assertLt(finalEpBalance, 2 ether, "Should still be below minimum threshold since top-up was skipped");
         assertTrue(true, "User operation should succeed despite stale price condition");
     }
 

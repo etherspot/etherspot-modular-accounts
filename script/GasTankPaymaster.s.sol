@@ -29,6 +29,7 @@ contract GasTankPaymasterScript is Script {
     // Address settings
     address public constant DEPLOYER = 0x09FD4F6088f2025427AB1e89257A44747081Ed59;
     address payable public constant VERIFYING_SIGNER = payable(0x09FD4F6088f2025427AB1e89257A44747081Ed59);
+    address payable public constant FEE_RECEIVER = payable(0x09FD4F6088f2025427AB1e89257A44747081Ed59);
     address public constant SWAP_ROUTER_ADDRESS = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // OP - Sushiswap SwapRouter
     address public constant TOKEN_ADDRESS = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85; // OP - USDC
     address public constant WRAPPED_NATIVE_TOKEN_ADDRESS = 0x4200000000000000000000000000000000000006; // OP - wETH
@@ -39,7 +40,7 @@ contract GasTankPaymasterScript is Script {
     uint128 public constant MINIMUM_ENTRYPOINT_BALANCE = 0.0005 ether;
     uint48 public constant POST_OP_COST = 35000;
     uint48 public constant PRICE_MAX_AGE = 2 minutes;
-    uint256 public constant MINIMUM_VS_TOKEN_BALANCE_FOR_TOPUP = 10;
+    uint256 public constant MINIMUM_FEE_RECEIVER_TOKEN_BALANCE_FOR_TOPUP = 10;
     // UniswapHelperConfig settings
     uint256 public constant MINIMUM_SWAP_AMOUNT = 0.0001 ether;
     uint24 public constant UNISWAP_POOL_FEE = 3000; // 0.3%
@@ -71,7 +72,7 @@ contract GasTankPaymasterScript is Script {
             postOpCost: POST_OP_COST,
             cachedTokenPrice: 0,
             markup: PRICE_MARKUP,
-            minVSTokenBalance: MINIMUM_VS_TOKEN_BALANCE_FOR_TOPUP
+            minFeeReceiverTokenBalance: MINIMUM_FEE_RECEIVER_TOKEN_BALANCE_FOR_TOPUP
         });
 
         // Create uniswap config
@@ -89,6 +90,7 @@ contract GasTankPaymasterScript is Script {
         GasTankPaymaster gasTankPaymaster = new GasTankPaymaster{salt: TEST_SALT}(
             DEPLOYER,
             VERIFYING_SIGNER,
+            FEE_RECEIVER,
             ENTRY_POINT,
             SWAP_ROUTER,
             TOKEN,

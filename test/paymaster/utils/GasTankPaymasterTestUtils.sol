@@ -48,6 +48,8 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
     uint256 internal user2Key;
     address payable internal verifyingSigner;
     uint256 internal verifyingSignerKey;
+    address payable internal feeReceiver;
+    uint256 internal feeReceiverKey;
     address payable internal immutable beneficiary;
 
     // Test variables
@@ -73,6 +75,7 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         (user1, user1Key) = makeAddrAndKey("user1");
         (user2, user2Key) = makeAddrAndKey("user2");
         (verifyingSigner, verifyingSignerKey) = _makePayableAddrAndKey("verifyingSigner");
+        (feeReceiver, feeReceiverKey) = _makePayableAddrAndKey("feeReceiver");
         mew = setupMEW();
         // Deploy test tokens
         usdt = new TestERC20();
@@ -93,14 +96,14 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         // Mint tokens to users
         usdc.mint(user1, USDC_INITIAL_MINT);
         usdc.mint(user2, USDC_INITIAL_MINT);
-        usdc.mint(verifyingSigner, USDC_INITIAL_MINT);
+        usdc.mint(feeReceiver, USDC_INITIAL_MINT);
         usdt.mint(user1, USDT_INITIAL_MINT);
         usdt.mint(user2, USDT_INITIAL_MINT);
-        usdt.mint(verifyingSigner, USDT_INITIAL_MINT);
+        usdt.mint(feeReceiver, USDT_INITIAL_MINT);
         vm.deal(deployer, 10000 ether);
         vm.deal(user1, 10 ether);
         vm.deal(user2, 10 ether);
-        vm.deal(verifyingSigner, 10000 ether);
+        vm.deal(feeReceiver, 10000 ether);
         vm.startPrank(deployer);
         // Create paymaster configurations
         GasTankPaymaster.GasTankPaymasterConfig memory paymasterConfigUSDC = GasTankPaymaster.GasTankPaymasterConfig({
@@ -112,7 +115,7 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
             postOpCost: 35000,
             cachedTokenPrice: 0,
             markup: PRICE_DENOMINATOR * 12 / 10,
-            minVSTokenBalance: 10 * 10 ** 6 // 10 USDC minimum
+            minFeeReceiverTokenBalance: 10 * 10 ** 6 // 10 USDC minimum
         });
         GasTankPaymaster.GasTankPaymasterConfig memory paymasterConfigUSDT = GasTankPaymaster.GasTankPaymasterConfig({
             tokenUsdFeed: IOracle(address(usdtOracle)),
@@ -123,7 +126,7 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
             postOpCost: 35000,
             cachedTokenPrice: 0,
             markup: PRICE_DENOMINATOR * 12 / 10,
-            minVSTokenBalance: 10 * 10 ** 18 // 10 USDT minimum
+            minFeeReceiverTokenBalance: 10 * 10 ** 18 // 10 USDT minimum
         });
         UniswapHelper.UniswapHelperConfig memory uniswapConfig =
             UniswapHelper.UniswapHelperConfig({minSwapAmount: 0.0001 ether, uniswapPoolFee: 3000, slippage: 50});
@@ -131,6 +134,7 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         gasTankUSDC = new GasTankPaymaster(
             deployer,
             verifyingSigner,
+            feeReceiver,
             entrypoint,
             ISwapRouter(address(uniswapV3)),
             IERC20Metadata(address(usdc)),
@@ -141,6 +145,7 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         gasTankUSDT = new GasTankPaymaster(
             deployer,
             verifyingSigner,
+            feeReceiver,
             entrypoint,
             ISwapRouter(address(uniswapV3)),
             IERC20Metadata(address(usdt)),
@@ -311,6 +316,10 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
 
     function _setVerifyingSigner(GasTankPaymaster _gasTank, address payable _newVerifyingSigner) internal {
         _gasTank.setVerifyingSigner(_newVerifyingSigner);
+    }
+
+    function _setFeeReceiver(GasTankPaymaster _gasTank, address payable _newFeeReceiver) internal {
+        _gasTank.setFeeReceiver(_newFeeReceiver);
     }
 
     function _setSwapRouter(GasTankPaymaster _gasTank, address _newSwapRouter) internal {
