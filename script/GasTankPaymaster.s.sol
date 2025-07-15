@@ -30,11 +30,11 @@ contract GasTankPaymasterScript is Script {
     address public constant DEPLOYER = 0x09FD4F6088f2025427AB1e89257A44747081Ed59;
     address payable public constant VERIFYING_SIGNER = payable(0x09FD4F6088f2025427AB1e89257A44747081Ed59);
     address payable public constant FEE_RECEIVER = payable(0x09FD4F6088f2025427AB1e89257A44747081Ed59);
-    address public constant SWAP_ROUTER_ADDRESS = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // OP - Sushiswap SwapRouter
-    address public constant TOKEN_ADDRESS = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85; // OP - USDC
-    address public constant WRAPPED_NATIVE_TOKEN_ADDRESS = 0x4200000000000000000000000000000000000006; // OP - wETH
-    address public constant TOKEN_ORACLE = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3; // OP - USDC/USD (Chainlink)
-    address public constant NATIVE_TOKEN_ORACLE = 0x13e3Ee699D1909E989722E753853AE30b17e08c5; // OP - ETH/USD (Chainlink)
+    address public constant SWAP_ROUTER_ADDRESS = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // Polygon - Uniswap SwapRouter02
+    address public constant TOKEN_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359; // Polygon - USDC
+    address public constant WRAPPED_NATIVE_TOKEN_ADDRESS = 0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270; // Polygon - wPOL
+    address public constant TOKEN_ORACLE = 0xfE4A8cc5b5B2366C1B58Bea3858e81843581b2F7; // Polygon - USDC/USD (Chainlink)
+    address public constant NATIVE_TOKEN_ORACLE = 0xAB594600376Ec9fD91F8e885dADF0CE036862dE0; // Polygon - MATIC/USD (Chainlink)
     // PaymasterConfig settings
     uint256 public constant PRICE_MARKUP = 1e26 * 12 / 10; // 1.2x markup
     uint128 public constant MINIMUM_ENTRYPOINT_BALANCE = 0.0005 ether;
@@ -87,7 +87,7 @@ contract GasTankPaymasterScript is Script {
         //////////////////////////////////////////////////////////////*/
         console2.log("Deploying GasTankPaymaster...");
         // if (EXPECTED_GAS_TANK_PAYMASTER.code.length == 0) {
-        GasTankPaymaster gasTankPaymaster = new GasTankPaymaster{salt: TEST_SALT}(
+        GasTankPaymaster gasTankPaymaster = new GasTankPaymaster(
             DEPLOYER,
             VERIFYING_SIGNER,
             FEE_RECEIVER,
@@ -112,14 +112,28 @@ contract GasTankPaymasterScript is Script {
         console2.log("Finished deployment sequence!");
 
         /*//////////////////////////////////////////////////////////////
-                      STAKE PAYMASTER WITH ENTRYPOINT
+                        Stake Paymaster With EntryPoint
         //////////////////////////////////////////////////////////////*/
+
         console2.log("Staking paymaster with entrypoint...");
-        gasTankPaymaster.addStake{value: 0.001 ether}(1);
-        console2.log("Stake amount:", uint256(0.001 ether));
+        gasTankPaymaster.addStake{value: 0.01 ether}(1);
+        console2.log("Stake amount:", uint256(0.01 ether));
         console2.log("Stake delay:", uint256(1));
         console2.log("Stake balance:", gasTankPaymaster.getDeposit());
         console2.log("Staked paymaster with entrypoint!");
+
+        /*//////////////////////////////////////////////////////////////
+                        Update Cached Price On Paymaster
+        //////////////////////////////////////////////////////////////*/
+
+        console2.log("Updating cached price on paymaster...");
+        gasTankPaymaster.updateCachedPrice(true);
+        (, uint256 cachedPrice,,,,) = gasTankPaymaster.getPaymasterStatus();
+        if (cachedPrice == 0) {
+            revert("Cached price not updated!");
+        } else {
+            console2.log("Cached price updated! Price:", cachedPrice);
+        }
         vm.stopBroadcast();
     }
 }
