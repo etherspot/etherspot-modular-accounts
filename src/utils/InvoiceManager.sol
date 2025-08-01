@@ -156,7 +156,7 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
      * @param _invoiceData Encoded bytes containing all invoice and token data from CredibleAccountModule
      * @return sessionKey The session key address of the created invoice
      * @dev Only callable by addresses with CREDIBLE_ACCOUNT_ROLE (CredibleAccountModule)
-     * @dev Unpacks: (smartWallet, sessionKey, solver, bidHash, chainId, validAfter, validUntil, TokenData[])
+     * @dev Unpacks: (smartWallet, sessionKey, solver, bidHash, chainId, TokenData[])
      * @dev All tokens must be whitelisted and solver must be active
      * @dev Snapshots the solver's fee at creation time to prevent fee manipulation
      */
@@ -225,7 +225,7 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
      * @notice Registers a new solver with specified name and fee structure
      * @param _solver Address of the solver to onboard
      * @param _name Human-readable name for the solver
-     * @param _pulseFee Fee in cents (0 = use default 25 cents, >0 = custom fee amount)
+     * @param _pulseFee Fee in cents (0 = use default 5 cents, >0 = custom fee amount)
      * @dev Only callable by addresses with SOLVER_MANAGER_ROLE
      * @dev Solver address cannot be zero and must not already exist
      */
