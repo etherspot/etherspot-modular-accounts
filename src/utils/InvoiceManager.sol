@@ -337,6 +337,7 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
      * @param _amount Amount of tokens to withdraw
      * @dev Only callable by addresses with DEFAULT_ADMIN_ROLE
      * @dev Transfers tokens to the caller (admin)
+     * @dev Should be used for tokens that are not preallocated to an invoice
      */
     function emergencyWithdraw(address _token, uint256 _amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (_amount == 0) revert IM_InvalidTokenAmount();
@@ -773,7 +774,7 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
      * @return fee Final fee amount in token's native decimals
      */
     function _calculateFeeForToken(address _token, uint256 _feeOverride) internal view returns (uint256 fee) {
-        uint256 pulseFee = _feeOverride == 0 ? PULSE_BASE_FEE : _feeOverride; // Default 25 cents = 0.25 tokens
+        uint256 pulseFee = _feeOverride == 0 ? PULSE_BASE_FEE : _feeOverride; // Default 5 cents = 0.05 tokens
 
         try IERC20Metadata(_token).decimals() returns (uint8 decimals) {
             // Convert cents to token amount: (cents * 10^decimals) / 100
