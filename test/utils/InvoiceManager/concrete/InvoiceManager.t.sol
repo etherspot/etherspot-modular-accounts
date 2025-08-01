@@ -1435,18 +1435,9 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         // Verify we have the correct number of tokens
         assertEq(tokenFees.length, 3, "Should return fees for 3 tokens");
 
-        // Calculate total fees from TokenData array (NOTE: This is mathematically invalid but kept for test compatibility)
-        uint256 totalFees = 0;
-        for (uint256 i; i < tokenFees.length; ++i) {
-            totalFees += tokenFees[i].amount;
-        }
-
         uint256 expectedUSDCFee = _calculateExpectedFeeForToken(address(testUSDC), 0);
         uint256 expectedUSDTFee = _calculateExpectedFeeForToken(address(testUSDT), 0);
         uint256 expectedDAIFee = _calculateExpectedFeeForToken(address(testDAI), 0);
-        uint256 expectedTotal = expectedUSDCFee + expectedUSDTFee + expectedDAIFee;
-
-        assertEq(totalFees, expectedTotal, "Total fees should match calculated amount");
 
         // Verify individual token addresses and fee amounts
         assertEq(tokenFees[0].token, address(testUSDC), "First token should be USDC");
