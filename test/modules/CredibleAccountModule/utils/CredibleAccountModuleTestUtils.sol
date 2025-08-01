@@ -25,7 +25,6 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
     CredibleAccountModuleHarness internal harness;
 
     // Test addresses and keys
-    User solver;
     User otherSessionKey;
 
     // Test variables
@@ -44,6 +43,8 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         _installHookViaMultiplexer(scw, address(cam), HookType.GLOBAL);
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(rlv), abi.encode(eoa.pub));
+        vm.prank(deployer.pub);
+        im.onboardSolver(solver.pub, "solver 1", 0);
         vm.startPrank(address(scw));
         _;
     }
@@ -55,7 +56,6 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
     function _testSetup() internal {
         // Set up contracts and wallet
         _testInit();
-        solver = _createUser("Solver");
         otherSessionKey = _createUser("Other Session Key");
         harness = new CredibleAccountModuleHarness(deployer.pub, address(hmp));
         vm.startPrank(address(scw));
@@ -80,6 +80,7 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
             sessionKey: sessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: DUMMY_BID_HASH,
             tokenData: td
         });
@@ -94,6 +95,7 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
                 _lock.sessionKey,
                 _lock.validAfter,
                 _lock.validUntil,
+                _lock.solver,
                 _lock.bidHash,
                 abi.encode(_lock.tokenData)
             )
@@ -166,9 +168,9 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         uint256 _usdt
     ) internal {
         console.log("_claimTokensBySolver called with wallet:", address(_scw));
-        bytes memory usdcData = _createTokenTransferExecution(solver.pub, _usdc);
-        bytes memory daiData = _createTokenTransferExecution(solver.pub, _dai);
-        bytes memory usdtData = _createTokenTransferExecution(solver.pub, _usdt);
+        bytes memory usdcData = _createTokenTransferExecution(address(im), _usdc);
+        bytes memory daiData = _createTokenTransferExecution(address(im), _dai);
+        bytes memory usdtData = _createTokenTransferExecution(address(im), _usdt);
         Execution[] memory batch = new Execution[](3);
         batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
         batch[1] = Execution({target: address(dai), value: 0, callData: daiData});

@@ -6,6 +6,7 @@ import {console2} from "forge-std/console2.sol";
 import {HookMultiPlexer} from "../src/modules/hooks/HookMultiPlexer.sol";
 import {CredibleAccountModule} from "../src/modules/validators/CredibleAccountModule.sol";
 import {ResourceLockValidator} from "../src/modules/validators/ResourceLockValidator.sol";
+import {InvoiceManager} from "../src/utils/InvoiceManager.sol";
 
 contract CredibleAccountSetupScript is Script {
     bytes32 public immutable SALT = bytes32(abi.encodePacked("ModularEtherspotWallet:Create2:salt"));
@@ -14,11 +15,14 @@ contract CredibleAccountSetupScript is Script {
     address public constant EXPECTED_HOOK_MULTIPLEXER_ADDRESS = 0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3;
     address public constant EXPECTED_CREDIBLE_ACCOUNT_MODULE_ADDRESS = 0xc34D2E2D9Fa0aDbCd801F13563A1423858751A12;
     address public constant EXPECTED_RESOURCE_LOCK_VALIDATOR_ADDRESS = 0x08B42e03c1beC06caa3811F503EBF2D58CaccE94;
+    address public constant EXPECTED_INVOICE_MANAGER_ADDRESS = address(0);
+    address[] public INVOICE_MANAGER_WHITELISTED_TOKENS = [address(0), address(0), address(0)];
 
     function run() external {
         HookMultiPlexer hookMultiPlexer;
         CredibleAccountModule credibleAccountModule;
         ResourceLockValidator resourceLockValidator;
+        InvoiceManager invoiceManager;
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
 
@@ -77,14 +81,37 @@ contract CredibleAccountSetupScript is Script {
         }
 
         /*//////////////////////////////////////////////////////////////
+                            Deploy InvoiceManager
+        //////////////////////////////////////////////////////////////*/
+
+        console2.log("Deploying InvoiceManager...");
+        if (EXPECTED_INVOICE_MANAGER_ADDRESS.code.length == 0) {
+            invoiceManager = new InvoiceManager{salt: SALT}(
+                DEPLOYER, address(credibleAccountModule), DEPLOYER, DEPLOYER, INVOICE_MANAGER_WHITELISTED_TOKENS
+            );
+            if (address(invoiceManager) != EXPECTED_INVOICE_MANAGER_ADDRESS) {
+                revert("Unexpected InvoiceManager address!!!");
+            } else {
+                console2.log("InvoiceManager deployed at address", address(invoiceManager));
+                console2.log("InvoiceManager deployed with whitelisted tokens:");
+                for (uint256 i; i < INVOICE_MANAGER_WHITELISTED_TOKENS.length; ++i) {
+                    console2.log(INVOICE_MANAGER_WHITELISTED_TOKENS[i]);
+                }
+            }
+        } else {
+            console2.log("InvoiceManager already deployed at address", EXPECTED_INVOICE_MANAGER_ADDRESS);
+        }
+
+        /*//////////////////////////////////////////////////////////////
                 CredibleAccountModule/ResourceLockValidator Setup
         //////////////////////////////////////////////////////////////*/
 
         console2.log("Setting up CredibleAccountModule and ResourceLockValidator...");
         address camSetup = credibleAccountModule.resourceLockValidator();
+        address imSetup = credibleAccountModule.invoiceManager();
         address rlvSetup = resourceLockValidator.credibleAccountModule();
-        if (camSetup == address(0)) {
-            credibleAccountModule.setResourceLockValidator(address(resourceLockValidator));
+        if (camSetup == address(0) && imSetup == address(0)) {
+            credibleAccountModule.configure(address(resourceLockValidator), address(invoiceManager));
         } else {
             console2.log("The CredibleAccountModule has already been setup");
         }

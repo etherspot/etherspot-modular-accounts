@@ -53,6 +53,7 @@ struct ResourceLock {
     address sessionKey;
     uint48 validAfter;
     uint48 validUntil;
+    address solver;
     bytes32 bidHash;
     TokenData[] tokenData;
 }

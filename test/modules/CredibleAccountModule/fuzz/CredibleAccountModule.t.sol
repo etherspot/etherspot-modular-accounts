@@ -50,6 +50,14 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
             vm.assume(_tokens[i] != address(0));
             vm.assume(_amounts[i] > 0);
             tokenAmounts[i] = TokenData(_tokens[i], _amounts[i]);
+            vm.stopPrank();
+            vm.startPrank(deployer.pub);
+            // Only whitelist if not already whitelisted
+            if (!im.isTokenWhitelisted(_tokens[i])) {
+                im.addTokenToWhitelist(_tokens[i]);
+            }
+            vm.stopPrank();
+            vm.startPrank(address(scw));
         }
 
         ResourceLock memory rl = ResourceLock({
@@ -58,6 +66,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
             sessionKey: sk.pub,
             validAfter: _validAfter,
             validUntil: _validUntil,
+            solver: solver.pub,
             bidHash: DUMMY_BID_HASH,
             tokenData: tokenAmounts
         });
@@ -122,6 +131,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
                 sessionKey: sk.pub,
                 validAfter: validAfter,
                 validUntil: validUntil,
+                solver: solver.pub,
                 bidHash: DUMMY_BID_HASH,
                 tokenData: tokenAmounts
             });
@@ -151,17 +161,17 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
             batch[0] = Execution({
                 target: address(usdc),
                 value: 0,
-                callData: _createTokenTransferExecution(solver.pub, _lockedAmounts[0])
+                callData: _createTokenTransferExecution(address(im), _lockedAmounts[0])
             });
             batch[1] = Execution({
                 target: address(dai),
                 value: 0,
-                callData: _createTokenTransferExecution(solver.pub, _lockedAmounts[1])
+                callData: _createTokenTransferExecution(address(im), _lockedAmounts[1])
             });
             batch[2] = Execution({
                 target: address(usdt),
                 value: 0,
-                callData: _createTokenTransferExecution(solver.pub, _lockedAmounts[2])
+                callData: _createTokenTransferExecution(address(im), _lockedAmounts[2])
             });
 
             bytes memory opCalldata =
@@ -200,6 +210,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
             sessionKey: sessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: DUMMY_BID_HASH,
             tokenData: tokenAmounts
         });

@@ -269,6 +269,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: address(0),
                 validAfter: validAfter,
                 validUntil: validUntil,
+                solver: solver.pub,
                 bidHash: DUMMY_BID_HASH,
                 tokenData: tokenAmounts
             })
@@ -292,6 +293,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: sessionKey.pub,
                 validAfter: uint48(0),
                 validUntil: validUntil,
+                solver: solver.pub,
                 bidHash: DUMMY_BID_HASH,
                 tokenData: tokenAmounts
             })
@@ -316,6 +318,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: sessionKey.pub,
                 validAfter: validAfter,
                 validUntil: uint48(0),
+                solver: solver.pub,
                 bidHash: DUMMY_BID_HASH,
                 tokenData: tokenAmounts
             })
@@ -331,12 +334,38 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: sessionKey.pub,
                 validAfter: validAfter,
                 validUntil: validAfter - 1,
+                solver: solver.pub,
                 bidHash: DUMMY_BID_HASH,
                 tokenData: tokenAmounts
             })
         );
         // Attempt to enable the session key
         _toRevert(CAM.CredibleAccountModule_InvalidValidUntil.selector, abi.encode(validAfter - 1));
+        cam.enableSessionKey(rl);
+        vm.stopPrank();
+    }
+
+    // Test: Enabling a session key with an invalid solver should revert
+    function test_enableSessionKey_revertIf_invalidSolver() public withRequiredModules {
+        // validUntil that is 0
+        TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            tokenAmounts[i] = TokenData(tokens[i], amounts[i]);
+        }
+        bytes memory rl = abi.encode(
+            ResourceLock({
+                chainId: block.chainid,
+                smartWallet: address(scw),
+                sessionKey: sessionKey.pub,
+                validAfter: validAfter,
+                validUntil: validUntil,
+                solver: address(0),
+                bidHash: DUMMY_BID_HASH,
+                tokenData: tokenAmounts
+            })
+        );
+        // Attempt to enable the session key
+        _toRevert(CAM.CredibleAccountModule_InvalidSolver.selector, hex"");
         cam.enableSessionKey(rl);
         vm.stopPrank();
     }
@@ -452,6 +481,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: otherSessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: SECOND_BID_HASH, // Different bid hash
             tokenData: newTokenData
         });
@@ -501,6 +531,12 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Append WETH lock onto newTokenData
         newTokenData[3] = TokenData(address(weth), newAmounts[3]);
 
+        // Add WETH as supported token on InvoiceManager
+        vm.stopPrank();
+        vm.prank(deployer.pub);
+        im.addTokenToWhitelist(address(weth));
+
+        vm.startPrank(address(scw));
         // Use different bid hash to avoid consumed bid hash error
         bytes32 SECOND_BID_HASH = keccak256("second_bid_hash");
         ResourceLock memory rl = ResourceLock({
@@ -509,6 +545,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: otherSessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: SECOND_BID_HASH, // Different bid hash
             tokenData: newTokenData
         });
@@ -560,7 +597,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         usdc.mint(address(scw), newAmounts[0]);
         dai.mint(address(scw), newAmounts[1]);
         vm.deal(address(scw), uint256(113e18));
-        TokenData[] memory newTokenData = new TokenData[](tokens.length + 1);
+        TokenData[] memory newTokenData = new TokenData[](2);
         for (uint256 i; i < 2; ++i) {
             newTokenData[i] = TokenData(tokens[i], newAmounts[i]);
         }
@@ -571,6 +608,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: otherSessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: SECOND_BID_HASH,
             tokenData: newTokenData
         });
@@ -703,9 +741,9 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Warp time to expire the session key
         vm.warp(validUntil + 1);
         // Claim tokens by solver
-        bytes memory usdcData = _createTokenTransferExecution(solver.pub, amounts[0]);
-        bytes memory daiData = _createTokenTransferExecution(solver.pub, amounts[1]);
-        bytes memory usdtData = _createTokenTransferExecution(solver.pub, amounts[2]);
+        bytes memory usdcData = _createTokenTransferExecution(address(im), amounts[0]);
+        bytes memory daiData = _createTokenTransferExecution(address(im), amounts[1]);
+        bytes memory usdtData = _createTokenTransferExecution(address(im), amounts[2]);
         Execution[] memory batch = new Execution[](3);
         batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
         batch[1] = Execution({target: address(dai), value: 0, callData: daiData});
@@ -986,6 +1024,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: otherSessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: SECOND_BID_HASH, // Different bid hash
             tokenData: tokenAmounts
         });
@@ -1126,7 +1165,8 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: otherSessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
-            bidHash: DUMMY_BID_HASH,
+            solver: solver.pub,
+            bidHash: keccak256(abi.encodePacked("someBidHash", otherSessionKey.pub)),
             tokenData: tokenAmounts
         });
 
@@ -1195,6 +1235,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: otherSessionKey.pub,
             validAfter: validAfter,
             validUntil: uint48(block.timestamp + 100), // Will expire soon
+            solver: solver.pub,
             bidHash: SECOND_BID_HASH,
             tokenData: tokenAmounts
         });
@@ -1230,6 +1271,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: thirdSessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: THIRD_BID_HASH,
             tokenData: tokenAmounts
         });
@@ -1391,6 +1433,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: otherSessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: SECOND_WALLET_BID_HASH,
             tokenData: tokenAmounts
         });
@@ -1445,9 +1488,9 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Enable session key
         _enableSessionKey(address(scw));
         // Set up calldata batch
-        bytes memory usdcData = _createTokenTransferExecution(solver.pub, amounts[0]);
-        bytes memory daiData = _createTokenTransferExecution(solver.pub, amounts[1]);
-        bytes memory usdtData = _createTokenTransferExecution(solver.pub, amounts[2]);
+        bytes memory usdcData = _createTokenTransferExecution(address(im), amounts[0]);
+        bytes memory daiData = _createTokenTransferExecution(address(im), amounts[1]);
+        bytes memory usdtData = _createTokenTransferExecution(address(im), amounts[2]);
         Execution[] memory batch = new Execution[](3);
         batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
         batch[1] = Execution({target: address(dai), value: 0, callData: daiData});
@@ -1477,9 +1520,9 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         // Set up calldata batch
         User memory orchestrator = _createUser("Orchestrator");
         vm.startPrank(orchestrator.pub);
-        bytes memory usdcData = _createTokenTransferExecution(solver.pub, amounts[0]);
-        bytes memory daiData = _createTokenTransferExecution(solver.pub, amounts[1]);
-        bytes memory usdtData = _createTokenTransferExecution(solver.pub, amounts[2]);
+        bytes memory usdcData = _createTokenTransferExecution(address(im), amounts[0]);
+        bytes memory daiData = _createTokenTransferExecution(address(im), amounts[1]);
+        bytes memory usdtData = _createTokenTransferExecution(address(im), amounts[2]);
         Execution[] memory batch = new Execution[](3);
         batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
         batch[1] = Execution({target: address(dai), value: 0, callData: daiData});
@@ -1509,6 +1552,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: sessionKey.pub,
                 validAfter: validAfter,
                 validUntil: validUntil,
+                solver: solver.pub,
                 bidHash: DUMMY_BID_HASH,
                 tokenData: tokenAmounts
             })
@@ -1542,6 +1586,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: sessionKey.pub, // Same session key as before
                 validAfter: validAfter,
                 validUntil: validUntil,
+                solver: solver.pub,
                 bidHash: DUMMY_BID_HASH,
                 tokenData: tokenAmounts
             })
@@ -1570,6 +1615,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 sessionKey: sessionKey.pub,
                 validAfter: validAfter,
                 validUntil: validUntil,
+                solver: solver.pub,
                 bidHash: DUMMY_BID_HASH,
                 tokenData: tokenAmounts
             })
@@ -1595,6 +1641,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: sessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: DUMMY_BID_HASH,
             tokenData: tokenAmounts
         });
@@ -1635,6 +1682,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: sessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: DUMMY_BID_HASH,
             tokenData: excessiveTokenAmounts // Too many tokens
         });
@@ -1672,7 +1720,13 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         TokenData[] memory maxTokenAmounts = new TokenData[](maxTokenCount);
         for (uint256 i; i < maxTokenCount; ++i) {
             // Create dummy token addresses
-            maxTokenAmounts[i] = TokenData(address(uint160(i + 1)), 100e18);
+            address newToken = address(uint160(i + 1));
+            maxTokenAmounts[i] = TokenData(newToken, 100e18);
+            // Add new token as whitelisted in InvoiceManager
+            vm.stopPrank();
+            vm.prank(deployer.pub);
+            im.addTokenToWhitelist(newToken);
+            vm.startPrank(address(scw));
         }
 
         ResourceLock memory rl = ResourceLock({
@@ -1681,6 +1735,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: sessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: DUMMY_BID_HASH,
             tokenData: maxTokenAmounts // Exactly MAX_LOCKED_TOKENS
         });
@@ -1870,6 +1925,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: sessionKey.pub,
             validAfter: uint48(block.timestamp),
             validUntil: uint48(block.timestamp + 1000),
+            solver: solver.pub,
             bidHash: keccak256("exactBalanceTest"),
             tokenData: exactTokenData
         });
@@ -1916,10 +1972,12 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         assertEq(cam.tokenTotalLockedForWallet(address(usdt)), 0, "No usdt should remain locked");
     }
 
-    function test_setResourceLockValidator_revertIf_invalidAddressUsed() public {
+    function test_configure_revertIf_invalidAddressesUsed() public {
         vm.startPrank(deployer.pub);
         _toRevert(CAM.CredibleAccountModule_InvalidResourceLockValidator.selector, hex"");
-        cam.setResourceLockValidator(address(0));
+        cam.configure(address(0), address(im));
+        _toRevert(CAM.CredibleAccountModule_InvalidInvoiceManager.selector, hex"");
+        cam.configure(address(rlv), address(0));
     }
 
     function test_enableSessionKey_revertIf_resourceLockValidatorNotSet() public {
@@ -1945,6 +2003,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: sessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: DUMMY_BID_HASH,
             tokenData: tokenAmounts
         });
@@ -1973,6 +2032,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
             sessionKey: sessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
+            solver: solver.pub,
             bidHash: DUMMY_BID_HASH,
             tokenData: tokenAmounts
         });
@@ -1982,5 +2042,640 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         vm.expectRevert(abi.encodeWithSelector(CAM.CredibleAccountModule_SessionKeyNotAuthorized.selector));
         cam.enableSessionKey(abi.encode(rl));
         vm.stopPrank();
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           FULL E2E TESTING
+    //////////////////////////////////////////////////////////////*/
+
+    // Run with --via-ir
+    function test_fullE2E_resourceLockToSettlement() public withRequiredModules {
+        // === SETUP PHASE ===
+        console2.log("=== SETUP PHASE ===");
+
+        // Fund the smart contract wallet with tokens
+        deal(address(usdc), address(scw), 1000e6);
+        deal(address(usdt), address(scw), 1000e18);
+        deal(address(dai), address(scw), 1000e18);
+
+        console2.log("SCW USDC balance:", usdc.balanceOf(address(scw)));
+        console2.log("SCW USDT balance:", usdt.balanceOf(address(scw)));
+        console2.log("SCW DAI balance:", dai.balanceOf(address(scw)));
+
+        // Record initial solver balances
+        uint256 solverUsdcBefore = usdc.balanceOf(solver.pub);
+        uint256 solverUsdtBefore = usdt.balanceOf(solver.pub);
+        uint256 solverDaiBefore = dai.balanceOf(solver.pub);
+
+        console2.log("Solver USDC balance before:", solverUsdcBefore);
+        console2.log("Solver USDT balance before:", solverUsdtBefore);
+        console2.log("Solver DAI balance before:", solverDaiBefore);
+
+        // === PHASE 1: CREATE RESOURCE LOCK & ENABLE SESSION KEY ===
+        console2.log("\n=== PHASE 1: ENABLE SESSION KEY ===");
+
+        // Create ResourceLock with specific token amounts
+        TokenData[] memory tokenData = new TokenData[](3);
+        tokenData[0] = TokenData({token: address(usdc), amount: 100e6}); // 100 USDC
+        tokenData[1] = TokenData({token: address(usdt), amount: 50e18}); // 50 USDT
+        tokenData[2] = TokenData({token: address(dai), amount: 200e18}); // 200 DAI
+
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: sessionKey.pub,
+            validAfter: uint48(block.timestamp),
+            validUntil: uint48(block.timestamp + 1 hours),
+            solver: solver.pub,
+            bidHash: DUMMY_BID_HASH,
+            tokenData: tokenData
+        });
+
+        // Create and execute UserOp to enable session key
+        (bytes32[] memory proof, bytes32 merkleRoot,) = getTestProof(_buildResourceLockHash(rl), true);
+
+        PackedUserOperation memory enableOp = _createUserOp(address(scw), address(rlv));
+        enableOp.callData = abi.encodeCall(
+            IERC7579Account.execute,
+            (
+                ModeLib.encodeSimpleSingle(),
+                ExecutionLib.encodeSingle(
+                    address(cam), 0, abi.encodeWithSelector(cam.enableSessionKey.selector, abi.encode(rl))
+                )
+        );
+
+        bytes memory sig = _sign(merkleRoot, eoa);
+        enableOp.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+
+        console2.log("Executing enableSessionKey UserOp...");
+        _executeUserOp(enableOp);
+
+        // Verify session key is enabled
+        assertTrue(cam.getSessionKeyData(sessionKey.pub).live, "Session key should be enabled");
+        console2.log(" Session key enabled successfully");
+
+        // Verify invoice was created
+        ICredibleAccountModule.LockedToken[] memory lockedTokens = cam.getLockedTokensForSessionKey(sessionKey.pub);
+        assertEq(lockedTokens.length, 3, "Should have 3 locked tokens");
+        console2.log(" Invoice created with", lockedTokens.length, "token entries");
+
+        // === PHASE 2: USE SESSION KEY TO TRANSFER TOKENS ===
+        console2.log("\n=== PHASE 2: USE SESSION KEY ===");
+
+        // Create batch execution to transfer tokens to InvoiceManager
+        Execution[] memory batch = new Execution[](3);
+        batch[0] = Execution({
+            target: address(usdc),
+            value: 0,
+            callData: abi.encodeCall(IERC20.transfer, (address(im), 100e6))
+        });
+        batch[1] = Execution({
+            target: address(usdt),
+            value: 0,
+            callData: abi.encodeCall(IERC20.transfer, (address(im), 50e18))
+        });
+        batch[2] = Execution({
+            target: address(dai),
+            value: 0,
+            callData: abi.encodeCall(IERC20.transfer, (address(im), 200e18))
+        });
+
+        bytes memory batchCallData =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
+
+        // Create UserOp with session key signature
+        (PackedUserOperation memory transferOp,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), batchCallData);
+
+        console2.log("Executing token transfer UserOp with session key...");
+        _executeUserOp(transferOp);
+
+        // Verify tokens were transferred to InvoiceManager
+        console2.log(" Tokens transferred to InvoiceManager");
+        console2.log("InvoiceManager USDC balance:", usdc.balanceOf(address(im)));
+        console2.log("InvoiceManager USDT balance:", usdt.balanceOf(address(im)));
+        console2.log("InvoiceManager DAI balance:", dai.balanceOf(address(im)));
+
+        // Verify token usage was tracked
+        lockedTokens = cam.getLockedTokensForSessionKey(sessionKey.pub);
+        for (uint256 i; i < lockedTokens.length; ++i) {
+            console2.log("Token", i);
+            console2.log("claimed:", lockedTokens[i].claimedAmount);
+            console2.log("of", lockedTokens[i].lockedAmount);
+            assertGt(lockedTokens[i].claimedAmount, 0, "Should have claimed tokens");
+        }
+
+        // === PHASE 3: SETTLE INVOICE ===
+        console2.log("\n=== PHASE 3: SETTLE INVOICE ===");
+
+        // Settle the invoice to pay the solver
+        vm.stopPrank();
+        vm.prank(deployer.pub); // Admin settles the invoice
+        console2.log("Settling invoice for session key...");
+        im.settleInvoice(sessionKey.pub);
+
+        // Verify solver was paid
+        uint256 solverUsdcAfter = usdc.balanceOf(solver.pub);
+        uint256 solverUsdtAfter = usdt.balanceOf(solver.pub);
+        uint256 solverDaiAfter = dai.balanceOf(solver.pub);
+
+        console2.log("Solver USDC balance after:", solverUsdcAfter);
+        console2.log("Solver USDT balance after:", solverUsdtAfter);
+        console2.log("Solver DAI balance after:", solverDaiAfter);
+
+        // Assert solver received tokens
+        assertGt(solverUsdcAfter, solverUsdcBefore, "Solver should receive USDC");
+        assertGt(solverUsdtAfter, solverUsdtBefore, "Solver should receive USDT");
+        assertGt(solverDaiAfter, solverDaiBefore, "Solver should receive DAI");
+
+        console2.log(" Solver paid successfully");
+
+        // === PHASE 4: CLEANUP VERIFICATION ===
+        console2.log("\n=== PHASE 4: CLEANUP ===");
+
+        // Verify session key is marked as claimed/settled
+        bool isSessionClaimed = cam.isSessionClaimed(sessionKey.pub);
+        console2.log("Session fully claimed:", isSessionClaimed);
+
+        // Verify bid hash is consumed (cannot be reused)
+        assertTrue(rlv.isConsumedBidHash(address(scw), DUMMY_BID_HASH), "Bid hash should be consumed");
+
+        console2.log(" E2E test completed successfully");
+    }
+
+    function test_fullE2E_preventDoubleSpendWithLockedTokens() public withRequiredModules {
+        // === SETUP PHASE ===
+        console2.log("=== SETUP: DOUBLE-SPEND PREVENTION TEST ===");
+
+        // Fund the smart contract wallet with tokens
+        deal(address(usdc), address(scw), 1000e6);
+        console2.log("SCW USDC balance:", usdc.balanceOf(address(scw)));
+
+        // === PHASE 1: ENABLE SESSION KEY WITH LOCKED TOKENS ===
+        console2.log("\n=== PHASE 1: LOCK 200 USDC FOR SESSION ===");
+
+        TokenData[] memory tokenData = new TokenData[](1);
+        tokenData[0] = TokenData({token: address(usdc), amount: 200e6}); // Lock 200 USDC
+
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: sessionKey.pub,
+            validAfter: uint48(block.timestamp),
+            validUntil: uint48(block.timestamp + 1 hours),
+            solver: solver.pub,
+            bidHash: DUMMY_BID_HASH,
+            tokenData: tokenData
+        });
+
+        // Enable session key (locks 200 USDC)
+        (bytes32[] memory proof, bytes32 merkleRoot,) = getTestProof(_buildResourceLockHash(rl), true);
+
+        PackedUserOperation memory enableOp = _createUserOp(address(scw), address(rlv));
+        enableOp.callData = abi.encodeCall(
+            IERC7579Account.execute,
+            (
+                ModeLib.encodeSimpleSingle(),
+                ExecutionLib.encodeSingle(
+                    address(cam), 0, abi.encodeWithSelector(cam.enableSessionKey.selector, abi.encode(rl))
+                )
+            )
+        );
+
+        bytes memory sig = _sign(merkleRoot, eoa);
+        enableOp.signature = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+
+        _executeUserOp(enableOp);
+
+        assertTrue(cam.getSessionKeyData(sessionKey.pub).live, "Session key should be enabled");
+        console2.log(" Session key enabled, 200 USDC locked");
+
+        // === PHASE 2: ATTEMPT DOUBLE-SPEND VIA REGULAR TRANSACTION ===
+        console2.log("\n=== PHASE 2: ATTEMPT TO SPEND LOCKED TOKENS VIA REGULAR TX ===");
+
+        // The key insight: Normal transactions using moecdsav should still trigger the hook
+        // since the hook is installed globally. Let's test spending more than available.
+
+        // Try to spend 900 USDC (but only 800 should be available due to 200 locked)
+        Execution memory overSpendTransfer = Execution({
+            target: address(usdc),
+            value: 0,
+            callData: abi.encodeCall(IERC20.transfer, (makeAddr("recipient1"), 900e6))
+        });
+
+        bytes memory overSpendCallData = abi.encodeCall(
+            IERC7579Account.execute,
+            (
+                ModeLib.encodeSimpleSingle(),
+                ExecutionLib.encodeSingle(overSpendTransfer.target, overSpendTransfer.value, overSpendTransfer.callData)
+            )
+        );
+
+        // Use moecdsav validator instead of raw eoa
+        (PackedUserOperation memory overSpendOp, bytes32 overSpendHash) =
+            _createUserOpWithSignature(eoa, address(scw), address(moecdsav), overSpendCallData);
+
+        console2.log("Attempting to spend 900 USDC via moecdsav (should fail in hook)...");
+
+        // This should fail in the hook's postCheck due to insufficient unlocked balance
+        _revertUserOpEvent(
+            overSpendHash, overSpendOp.nonce, HMPL.SubHookPostCheckError.selector, abi.encode(address(cam))
+        );
+
+        _executeUserOp(overSpendOp);
+
+        console2.log(" Over-spending prevented by hook");
+
+        // === PHASE 3: SPENDING WITHIN LIMITS SHOULD WORK ===
+        console2.log("\n=== PHASE 3: SPEND WITHIN AVAILABLE BALANCE ===");
+
+        // Spend 500 USDC (within the 800 available limit)
+        Execution memory validTransfer = Execution({
+            target: address(usdc),
+            value: 0,
+            callData: abi.encodeCall(IERC20.transfer, (makeAddr("recipient2"), 500e6))
+        });
+
+        bytes memory validCallData = abi.encodeCall(
+            IERC7579Account.execute,
+            (
+                ModeLib.encodeSimpleSingle(),
+                ExecutionLib.encodeSingle(validTransfer.target, validTransfer.value, validTransfer.callData)
+            )
+        );
+
+        (PackedUserOperation memory validOp,) =
+            _createUserOpWithSignature(eoa, address(scw), address(moecdsav), validCallData);
+
+        console2.log("Spending 500 USDC via moecdsav (should succeed)...");
+        _executeUserOp(validOp);
+
+        assertEq(usdc.balanceOf(address(scw)), 500e6, "Should have 500 USDC remaining");
+        console2.log(" Valid spending within limits succeeded");
+
+        // === PHASE 4: TRY TO OVER-SPEND AGAIN (SHOULD STILL FAIL) ===
+        console2.log("\n=== PHASE 4: ATTEMPT OVER-SPEND AFTER PARTIAL SPENDING ===");
+
+        // Now try to spend 400 USDC (only 300 should be available: 500 - 200 locked)
+        Execution memory secondOverSpend = Execution({
+            target: address(usdc),
+            value: 0,
+            callData: abi.encodeCall(IERC20.transfer, (makeAddr("recipient3"), 400e6))
+        });
+
+        bytes memory secondOverSpendCallData = abi.encodeCall(
+            IERC7579Account.execute,
+            (
+                ModeLib.encodeSimpleSingle(),
+                ExecutionLib.encodeSingle(secondOverSpend.target, secondOverSpend.value, secondOverSpend.callData)
+            )
+        );
+
+        (PackedUserOperation memory secondOverSpendOp, bytes32 secondOverSpendHash) =
+            _createUserOpWithSignature(eoa, address(scw), address(moecdsav), secondOverSpendCallData);
+
+        console2.log("Attempting to spend 400 USDC (only 300 available, should fail)...");
+        _revertUserOpEvent(
+            secondOverSpendHash, secondOverSpendOp.nonce, HMPL.SubHookPostCheckError.selector, abi.encode(address(cam))
+        );
+
+        _executeUserOp(secondOverSpendOp);
+
+        console2.log(" Second over-spend prevented by hook");
+
+        // === PHASE 5: CLAIM LOCKED TOKENS VIA SESSION KEY ===
+        console2.log("\n=== PHASE 5: CLAIM LOCKED TOKENS VIA SESSION ===");
+
+        Execution memory claimTransfer = Execution({
+            target: address(usdc),
+            value: 0,
+            callData: abi.encodeCall(IERC20.transfer, (address(im), 200e6))
+        });
+
+        bytes memory claimCallData = abi.encodeCall(
+            IERC7579Account.execute,
+            (
+                ModeLib.encodeSimpleSingle(),
+                ExecutionLib.encodeSingle(claimTransfer.target, claimTransfer.value, claimTransfer.callData)
+            )
+        );
+
+        (PackedUserOperation memory claimOp,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), claimCallData);
+
+        console2.log("Claiming 200 USDC through authorized session...");
+        _executeUserOp(claimOp);
+
+        assertEq(usdc.balanceOf(address(scw)), 300e6, "Should have 300 USDC remaining");
+        assertEq(usdc.balanceOf(address(im)), 200e6, "InvoiceManager should receive 200 USDC");
+
+        console2.log(" Authorized session claiming succeeded");
+
+        // === PHASE 6: VERIFY ALL REMAINING TOKENS ARE NOW FREELY SPENDABLE ===
+        console2.log("\n=== PHASE 6: VERIFY POST-CLAIM FREEDOM ===");
+
+        // Now all 300 remaining USDC should be freely spendable
+        Execution memory finalTransfer = Execution({
+            target: address(usdc),
+            value: 0,
+            callData: abi.encodeCall(IERC20.transfer, (makeAddr("recipient4"), 300e6))
+        });
+
+        bytes memory finalCallData = abi.encodeCall(
+            IERC7579Account.execute,
+            (
+                ModeLib.encodeSimpleSingle(),
+                ExecutionLib.encodeSingle(finalTransfer.target, finalTransfer.value, finalTransfer.callData)
+            )
+        );
+
+        (PackedUserOperation memory finalOp,) =
+            _createUserOpWithSignature(eoa, address(scw), address(moecdsav), finalCallData);
+
+        console2.log("Spending all remaining 300 USDC (should succeed)...");
+        _executeUserOp(finalOp);
+
+        assertEq(usdc.balanceOf(address(scw)), 0, "Should have 0 USDC remaining");
+
+        console2.log(" All remaining tokens freely spendable after claim");
+        console2.log("=== DOUBLE-SPEND PREVENTION TEST PASSED ===");
+    }
+
+    function test_fullE2E_preventBidHashReplay() public withRequiredModules {
+        // === SETUP PHASE ===
+        console2.log("=== SETUP: BID HASH REPLAY PREVENTION TEST ===");
+
+        deal(address(usdc), address(scw), 1000e6);
+
+        bytes32 FIRST_BID_HASH = keccak256("first_bid_hash");
+
+        // === PHASE 1: FIRST SUCCESSFUL SESSION WITH BID HASH ===
+        console2.log("\n=== PHASE 1: FIRST SESSION WITH BID HASH ===");
+
+        TokenData[] memory tokenData1 = new TokenData[](1);
+        tokenData1[0] = TokenData({token: address(usdc), amount: 100e6});
+
+        ResourceLock memory rl1 = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: sessionKey.pub,
+            validAfter: uint48(block.timestamp),
+            validUntil: uint48(block.timestamp + 1 hours),
+            solver: solver.pub,
+            bidHash: FIRST_BID_HASH,
+            tokenData: tokenData1
+        });
+
+        // Enable first session
+        (bytes32[] memory proof1, bytes32 merkleRoot1,) = getTestProof(_buildResourceLockHash(rl1), true);
+
+        PackedUserOperation memory enableOp1 = _createUserOp(address(scw), address(rlv));
+        enableOp1.callData = abi.encodeCall(
+            IERC7579Account.execute,
+            (
+                ModeLib.encodeSimpleSingle(),
+                ExecutionLib.encodeSingle(
+                    address(cam), 0, abi.encodeWithSelector(cam.enableSessionKey.selector, abi.encode(rl1))
+                )
+            )
+        );
+
+        bytes memory sig1 = _sign(merkleRoot1, eoa);
+        enableOp1.signature = bytes.concat(sig1, abi.encodePacked(merkleRoot1), _packProofForSignature(proof1));
+
+        _executeUserOp(enableOp1);
+
+        assertTrue(cam.getSessionKeyData(sessionKey.pub).live, "First session should be enabled");
+        assertTrue(rlv.isConsumedBidHash(address(scw), FIRST_BID_HASH), "Bid hash should be consumed");
+        console2.log(" First session enabled, bid hash consumed");
+
+        // Complete the first session by claiming tokens
+        Execution memory claimTransfer1 = Execution({
+            target: address(usdc),
+            value: 0,
+            callData: abi.encodeCall(IERC20.transfer, (address(im), 100e6))
+        });
+
+        bytes memory claimCallData1 = abi.encodeCall(
+            IERC7579Account.execute,
+            (
+                ModeLib.encodeSimpleSingle(),
+                ExecutionLib.encodeSingle(claimTransfer1.target, claimTransfer1.value, claimTransfer1.callData)
+            )
+        );
+
+        (PackedUserOperation memory claimOp1,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), claimCallData1);
+        _executeUserOp(claimOp1);
+
+        console2.log(" First session completed successfully");
+
+        // === PHASE 2: ATTEMPT TO REUSE SAME BID HASH (SHOULD FAIL) ===
+        console2.log("\n=== PHASE 2: ATTEMPT BID HASH REPLAY ===");
+
+        // Create new session key for replay attempt
+        User memory replaySessionKey = _createUser("replay_session");
+
+        TokenData[] memory tokenData2 = new TokenData[](1);
+        tokenData2[0] = TokenData({token: address(usdc), amount: 50e6});
+
+        // Try to reuse the SAME bid hash
+        ResourceLock memory rl2 = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: replaySessionKey.pub,
+            validAfter: uint48(block.timestamp),
+            validUntil: uint48(block.timestamp + 1 hours),
+            solver: solver.pub,
+            bidHash: FIRST_BID_HASH, // REUSING SAME BID HASH!
+            tokenData: tokenData2
+        });
+
+        (bytes32[] memory proof2, bytes32 merkleRoot2,) = getTestProof(_buildResourceLockHash(rl2), true);
+
+        PackedUserOperation memory replayOp = _createUserOp(address(scw), address(rlv));
+        replayOp.callData = abi.encodeCall(
+            IERC7579Account.execute,
+            (
+                ModeLib.encodeSimpleSingle(),
+                ExecutionLib.encodeSingle(
+                    address(cam), 0, abi.encodeWithSelector(cam.enableSessionKey.selector, abi.encode(rl2))
+                )
+            )
+        );
+
+        bytes memory sig2 = _sign(merkleRoot2, eoa);
+        replayOp.signature = bytes.concat(sig2, abi.encodePacked(merkleRoot2), _packProofForSignature(proof2));
+
+        // This should fail in ResourceLockValidator
+        console2.log("Attempting to reuse bid hash (should fail)...");
+        _toRevert(
+            IEntryPoint.FailedOpWithRevert.selector,
+            abi.encode(
+                0,
+                AA23,
+                abi.encodeWithSelector(ResourceLockValidator.RLV_BidHashAlreadyConsumed.selector, FIRST_BID_HASH)
+            )
+        );
+
+        _executeUserOp(replayOp);
+
+        console2.log(" Bid hash replay prevented");
+
+        // === PHASE 3: VERIFY NEW BID HASH WORKS ===
+        console2.log("\n=== PHASE 3: NEW BID HASH SHOULD WORK ===");
+
+        bytes32 NEW_BID_HASH = keccak256("new_bid_hash");
+
+        ResourceLock memory rl3 = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: replaySessionKey.pub,
+            validAfter: uint48(block.timestamp),
+            validUntil: uint48(block.timestamp + 1 hours),
+            solver: solver.pub,
+            bidHash: NEW_BID_HASH, // NEW BID HASH
+            tokenData: tokenData2
+        });
+
+        (bytes32[] memory proof3, bytes32 merkleRoot3,) = getTestProof(_buildResourceLockHash(rl3), true);
+
+        PackedUserOperation memory newOp = _createUserOp(address(scw), address(rlv));
+        newOp.callData = abi.encodeCall(
+            IERC7579Account.execute,
+            (
+                ModeLib.encodeSimpleSingle(),
+                ExecutionLib.encodeSingle(
+                    address(cam), 0, abi.encodeWithSelector(cam.enableSessionKey.selector, abi.encode(rl3))
+                )
+            )
+        );
+
+        bytes memory sig3 = _sign(merkleRoot3, eoa);
+        newOp.signature = bytes.concat(sig3, abi.encodePacked(merkleRoot3), _packProofForSignature(proof3));
+
+        console2.log("Attempting with new bid hash (should succeed)...");
+        _executeUserOp(newOp);
+
+        assertTrue(cam.getSessionKeyData(replaySessionKey.pub).live, "New session should be enabled");
+        assertTrue(rlv.isConsumedBidHash(address(scw), NEW_BID_HASH), "New bid hash should be consumed");
+
+        console2.log(" New bid hash worked successfully");
+        console2.log("=== BID HASH REPLAY PREVENTION TEST PASSED ===");
+    }
+
+    function test_fullE2E_expiredSessionKeyRejection() public withRequiredModules {
+        // Setup: Create an expired session key using absolute timestamps
+        uint48 expiredValidAfter = uint48(block.timestamp + 1 hours);
+        uint48 expiredValidUntil = uint48(block.timestamp + 2 hours);
+
+        TokenData[] memory td = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            td[i] = TokenData(tokens[i], amounts[i]);
+        }
+
+        ResourceLock memory expiredRl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: sessionKey.pub,
+            validAfter: expiredValidAfter,
+            validUntil: expiredValidUntil,
+            solver: solver.pub,
+            bidHash: DUMMY_BID_HASH,
+            tokenData: td
+        });
+
+        // First enable the session key (this should work)
+        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(expiredRl));
+        bytes memory enableOpCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
+        );
+
+        (PackedUserOperation memory enableOp, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), enableOpCalldata, expiredRl, true);
+        bytes memory enableSig = _sign(root, eoa);
+        enableOp.signature = bytes.concat(enableSig, abi.encodePacked(root), _packProofForSignature(proof));
+        _executeUserOp(enableOp);
+
+        // Now advance time to make the session key expired
+        vm.warp(block.timestamp + 3 hours);
+
+        // Try to use the now-expired session key to claim tokens
+        bytes memory usdcData = _createTokenTransferExecution(address(im), amounts[0]);
+        bytes memory claimOpCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(usdc), 0, usdcData))
+        );
+
+        // Use session key to sign but it should fail due to expiration
+        (PackedUserOperation memory claimOp,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), claimOpCalldata);
+
+        // Expect AA22 due to expired timestamp validation
+        _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA22));
+        _executeUserOp(claimOp);
+    }
+
+    function test_fullE2E_inactiveSolverSettlement() public withRequiredModules {
+        deal(address(usdc), address(scw), 1000e6);
+
+        // Complete the full flow
+        _enableSessionKey(address(scw));
+
+        bytes memory claimData = _createTokenTransferExecution(address(im), amounts[0]);
+        bytes memory claimCallData = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(usdc), 0, claimData))
+        );
+
+        (PackedUserOperation memory claimOp,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), claimCallData);
+        _executeUserOp(claimOp);
+
+        // Deactivate the solver
+        vm.stopPrank();
+        vm.prank(deployer.pub);
+        im.toggleSolverStatus(solver.pub);
+
+        // Try to settle with inactive solver (should fail)
+        vm.prank(deployer.pub);
+        vm.expectRevert(); // Should revert due to inactive solver
+        im.settleInvoice(sessionKey.pub);
+    }
+
+    function test_fullE2E_emergencySessionDisable() public withRequiredModules {
+        deal(address(usdc), address(scw), 1000e6);
+
+        _enableSessionKey(address(scw));
+
+        // Verify session is active
+        assertTrue(cam.getSessionKeyData(sessionKey.pub).live, "Session should be active");
+
+        // Admin emergency disable
+        vm.stopPrank();
+        vm.prank(deployer.pub);
+        vm.expectEmit(true, true, false, false);
+        emit ICredibleAccountModule.CredibleAccountModule_SessionKeyDisabled(sessionKey.pub, address(scw));
+        cam.emergencyDisableSessionKey(sessionKey.pub);
+
+        // Verify session is disabled
+        assertEq(cam.getSessionKeyData(sessionKey.pub).validUntil, 0, "Session should be disabled");
+
+        // Try to use disabled session key (should fail)
+        bytes memory claimData = _createTokenTransferExecution(address(im), amounts[0]);
+        bytes memory claimCallData = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(usdc), 0, claimData))
+        );
+
+        (PackedUserOperation memory claimOp,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), claimCallData);
+
+        // Should fail with AA24 because the disabled session key data no longer matches
+        // (sessionData lookup returns empty struct, so sd.sessionKey != sessionKeySigner)
+        _toRevert(IEntryPoint.FailedOp.selector, abi.encode(0, AA24));
+
+        _executeUserOp(claimOp);
     }
 }

@@ -72,11 +72,12 @@ interface ICredibleAccountModule is IValidator, IHook {
                                 FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Sets the ResourceLockValidator contract address
+    /// @notice Configures the ResourceLockValidator and InvoiceManager contract addresses
     /// @dev Only callable by accounts with DEFAULT_ADMIN_ROLE
-    /// @dev Required for establishing circular dependency between ResourceLockValidator and CredibleAccountModule
+    /// @dev Required for establishing circular dependency between ResourceLockValidator, CredibleAccountModule and InvoiceManager
     /// @param _resourceLockValidator The address of the ResourceLockValidator contract
-    function setResourceLockValidator(address _resourceLockValidator) external;
+    /// @param _invoiceManager The address of the InvoiceManager contract
+    function configure(address _resourceLockValidator, address _invoiceManager) external;
 
     /// @notice Grants the SESSION_KEY_DISABLER role to an account.
     /// @param account The address of the account to grant the role to.

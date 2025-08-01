@@ -13,6 +13,7 @@ import "ERC7579/libs/ExecutionLib.sol";
 import {ICredibleAccountModule} from "../../interfaces/ICredibleAccountModule.sol";
 import {IResourceLockValidator} from "../../interfaces/IResourceLockValidator.sol";
 import {IHookMultiPlexer} from "../../interfaces/IHookMultiPlexer.sol";
+import {IInvoiceManager} from "../../interfaces/IInvoiceManager.sol";
 import "../../common/Structs.sol";
 
 contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerable {
@@ -25,16 +26,19 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
 
     error CredibleAccountModule_ModuleNotInstalled(address wallet);
     error CredibleAccountModule_InvalidResourceLockValidator();
+    error CredibleAccountModule_InvalidInvoiceManager();
     error CredibleAccountModule_ResourceLockValidatorNotSet();
     error CredibleAccountModule_MaxSessionKeysReached(address wallet);
     error CredibleAccountModule_InvalidWallet(address wallet, address caller);
     error CredibleAccountModule_InvalidSessionKey();
+    error CredibleAccountModule_InvalidSolver();
     error CredibleAccountModule_SessionKeyAlreadyExists(address sessionKey);
     error CredibleAccountModule_InvalidValidAfter();
     error CredibleAccountModule_InvalidValidUntil(uint48 validUntil);
     error CredibleAccountModule_InvalidChainId(uint256 chainId);
     error CredibleAccountModule_SessionKeyDoesNotExist(address session);
     error CredibleAccountModule_SessionKeyNotAuthorized();
+    error CredibleAccountModule_InvoiceNotCreated();
     error CredibleAccountModule_LockedTokensNotClaimed(address sessionKey);
     error CredibleAccountModule_InvalidHookMultiPlexer();
     error CredibleAccountModule_InvalidOnInstallData(address wallet);
@@ -66,6 +70,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
 
     IHookMultiPlexer public immutable hookMultiPlexer;
     address public resourceLockValidator;
+    address public invoiceManager;
     uint256 public constant MAX_SESSION_KEYS = 10;
     uint256 public constant MAX_LOCKED_TOKENS = 5;
     uint256 public constant DISABLE_SESSION_KEY_TIME_BUFFER = 30 seconds;
@@ -91,11 +96,15 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
                                 SETUP
     //////////////////////////////////////////////////////////////*/
 
-    function setResourceLockValidator(address _resourceLockValidator) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function configure(address _resourceLockValidator, address _invoiceManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (_resourceLockValidator == address(0)) {
             revert CredibleAccountModule_InvalidResourceLockValidator();
         }
+        if (_invoiceManager == address(0)) {
+            revert CredibleAccountModule_InvalidInvoiceManager();
+        }
         resourceLockValidator = _resourceLockValidator;
+        invoiceManager = _invoiceManager;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -145,6 +154,9 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         if (sessionKeyToWallet[rl.sessionKey] != address(0)) {
             revert CredibleAccountModule_SessionKeyAlreadyExists(rl.sessionKey);
         }
+        if (rl.solver == address(0)) {
+            revert CredibleAccountModule_InvalidSolver();
+        }
         if (rl.validAfter == 0) {
             revert CredibleAccountModule_InvalidValidAfter();
         }
@@ -170,6 +182,10 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         walletSessionKeys[msg.sender].push(rl.sessionKey);
         sessionKeyToWallet[rl.sessionKey] = msg.sender;
         IResourceLockValidator(resourceLockValidator).removeSessionKeyAuthorization(msg.sender, rl.sessionKey);
+        bytes memory invoiceData =
+            abi.encode(rl.smartWallet, rl.sessionKey, rl.solver, rl.bidHash, rl.chainId, rl.tokenData);
+        address key = IInvoiceManager(invoiceManager).createInvoice(invoiceData);
+        if (key != rl.sessionKey) revert CredibleAccountModule_InvoiceNotCreated();
         emit CredibleAccountModule_SessionKeyEnabled(rl.sessionKey, msg.sender);
     }
 
@@ -457,8 +473,9 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         returns (bool)
     {
         (address target,, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[EXEC_OFFSET:]);
-        (bytes4 selector,, uint256 amount) = _digestClaimTx(execData);
+        (bytes4 selector, address to, uint256 amount) = _digestClaimTx(execData);
         if (selector == bytes4(0)) return false;
+        if (to != invoiceManager) return false;
         return _validateTokenData(_sessionKey, _wallet, amount, target);
     }
 
@@ -474,8 +491,9 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     {
         Execution[] calldata execs = ExecutionLib.decodeBatch(_callData[EXEC_OFFSET:]);
         for (uint256 i; i < execs.length; ++i) {
-            (bytes4 selector,, uint256 amount) = _digestClaimTx(execs[i].callData);
+            (bytes4 selector, address to, uint256 amount) = _digestClaimTx(execs[i].callData);
             if (selector == bytes4(0)) return false;
+            if (to != invoiceManager) return false;
             if (!_validateTokenData(_sessionKey, _wallet, amount, execs[i].target)) return false;
         }
         return true;

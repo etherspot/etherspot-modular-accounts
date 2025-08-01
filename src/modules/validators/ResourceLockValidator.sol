@@ -276,7 +276,7 @@ contract ResourceLockValidator is IResourceLockValidator {
     /// @return offset The offset position where the array data begins
     /// @return length The number of elements in the array
     function _getArrayInfo(bytes calldata _data) internal pure returns (uint256 offset, uint256 length) {
-        offset = uint256(bytes32(_data[292:324]));
+        offset = uint256(bytes32(_data[324:356]));
         length = uint256(bytes32(_data[100 + offset:132 + offset]));
     }
 
@@ -324,7 +324,8 @@ contract ResourceLockValidator is IResourceLockValidator {
                     sessionKey: address(uint160(uint256(bytes32(execData[164:196])))),
                     validAfter: uint48(uint256(bytes32(execData[196:228]))),
                     validUntil: uint48(uint256(bytes32(execData[228:260]))),
-                    bidHash: bytes32(execData[260:292]),
+                    solver: address(uint160(uint256(bytes32(execData[260:292])))),
+                    bidHash: bytes32(execData[292:324]),
                     tokenData: td
                 });
             } else if (calltype == CALLTYPE_BATCH) {
@@ -345,7 +346,7 @@ contract ResourceLockValidator is IResourceLockValidator {
                     {
                         bytes calldata lockData = batchExecs[i].callData;
                         uint256 dataOffset = 68; // Skip function selector + 64 bytes
-                        uint256 arrayStart = dataOffset + 256;
+                        uint256 arrayStart = dataOffset + 288;
                         uint256 tokenDataLength = uint256(bytes32(lockData[arrayStart:arrayStart + 32]));
                         TokenData[] memory td = new TokenData[](tokenDataLength);
                         for (uint256 j; j < tokenDataLength; ++j) {
@@ -361,7 +362,8 @@ contract ResourceLockValidator is IResourceLockValidator {
                             sessionKey: address(uint160(uint256(bytes32(lockData[dataOffset + 96:dataOffset + 128])))),
                             validAfter: uint48(uint256(bytes32(lockData[dataOffset + 128:dataOffset + 160]))),
                             validUntil: uint48(uint256(bytes32(lockData[dataOffset + 160:dataOffset + 192]))),
-                            bidHash: bytes32(lockData[dataOffset + 192:dataOffset + 224]),
+                            solver: address(uint160(uint256(bytes32(lockData[dataOffset + 192:dataOffset + 224])))),
+                            bidHash: bytes32(lockData[dataOffset + 224:dataOffset + 256]),
                             tokenData: td
                         });
                     }
@@ -375,7 +377,7 @@ contract ResourceLockValidator is IResourceLockValidator {
     }
 
     /// @notice Builds a unique hash for a resource lock
-    /// @dev Combines chain ID, wallet, session key, validity period, token data, and bid hash into a single hash
+    /// @dev Combines chain ID, wallet, session key, validity period, token data, solver and bid hash into a single hash
     /// @param _lock The ResourceLock struct containing all lock parameters
     /// @return bytes32 The unique hash representing this resource lock
     function _buildResourceLockHash(ResourceLock memory _lock) internal pure returns (bytes32) {
@@ -386,6 +388,7 @@ contract ResourceLockValidator is IResourceLockValidator {
                 _lock.sessionKey,
                 _lock.validAfter,
                 _lock.validUntil,
+                _lock.solver,
                 _lock.bidHash,
                 abi.encode(_lock.tokenData)
             )

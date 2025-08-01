@@ -382,7 +382,10 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         // Create TokenData array with 10 entries
         TokenData[] memory tokens = new TokenData[](5);
         for (uint256 i; i < 5; ++i) {
-            tokens[i] = TokenData({token: vm.randomAddress(), amount: vm.randomUint()});
+            address newToken = vm.randomAddress();
+            tokens[i] = TokenData({token: newToken, amount: vm.randomUint()});
+            // Add new token to whitelisted tokens in InvoiceManager
+            _addTokenToInvoiceManagerWhitelist(newToken);
         }
         // Create ResourceLock with large TokenData array
         ResourceLock memory rl = _generateResourceLock(address(scw), sessionKey.pub);
@@ -473,7 +476,9 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         // Create TokenData array with 10 entries
         TokenData[] memory tokens = new TokenData[](5);
         for (uint256 i; i < 5; ++i) {
-            tokens[i] = TokenData({token: vm.randomAddress(), amount: vm.randomUint()});
+            address newToken = vm.randomAddress();
+            tokens[i] = TokenData({token: newToken, amount: vm.randomUint()});
+            _addTokenToInvoiceManagerWhitelist(newToken);
         }
         // Create ResourceLock with large TokenData array
         ResourceLock memory rl = _generateResourceLock(address(scw), sessionKey.pub);
