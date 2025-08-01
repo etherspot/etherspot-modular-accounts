@@ -107,6 +107,15 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         invoiceManager = _invoiceManager;
     }
 
+    function setInvoiceManager(address _invoiceManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_invoiceManager == address(0)) {
+            revert CredibleAccountModule_InvalidInvoiceManager();
+        }
+        address current = invoiceManager;
+        invoiceManager = _invoiceManager;
+        emit CredibleAccountModule_InvoiceManagerUpdated(current, _invoiceManager);
+    }
+
     /*//////////////////////////////////////////////////////////////
                        ACCESS CONTROL FUNCTIONS
     //////////////////////////////////////////////////////////////*/

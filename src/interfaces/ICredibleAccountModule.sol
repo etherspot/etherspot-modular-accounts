@@ -58,15 +58,20 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @param wallet The address of the wallet for which the session key is unpaused.
     event CredibleAccountModule_SessionKeyUnpaused(address sessionKey, address wallet);
 
-    /// @notice Emitted when aan address is granted role of SESSION_KEY_DISABLER.
+    /// @notice Emitted when an address is granted role of SESSION_KEY_DISABLER.
     /// @param account The address of the account granted the role.
     /// @param admin The address of the admin granting the role.
     event SessionKeyDisablerRoleGranted(address indexed account, address indexed admin);
 
-    /// @notice Emitted when aan address is revoked role of SESSION_KEY_DISABLER.
+    /// @notice Emitted when an address is revoked role of SESSION_KEY_DISABLER.
     /// @param account The address of the account revoked the role.
     /// @param admin The address of the admin revoking the role.
     event SessionKeyDisablerRoleRevoked(address indexed account, address indexed admin);
+
+    /// @notice Emitted when InvoiceManager is updated.
+    /// @param old The old InvoiceManager address.
+    /// @param updated The new InvoiceManager address.
+    event CredibleAccountModule_InvoiceManagerUpdated(address indexed old, address indexed updated);
 
     /*//////////////////////////////////////////////////////////////
                                 FUNCTIONS
