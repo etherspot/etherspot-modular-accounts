@@ -2102,6 +2102,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
                 ExecutionLib.encodeSingle(
                     address(cam), 0, abi.encodeWithSelector(cam.enableSessionKey.selector, abi.encode(rl))
                 )
+            )
         );
 
         bytes memory sig = _sign(merkleRoot, eoa);
