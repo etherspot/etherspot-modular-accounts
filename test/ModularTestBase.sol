@@ -326,6 +326,7 @@ contract ModularTestBase is BootstrapUtil, Test {
             ModularEtherspotWallet(payable(factory.createAccount({salt: uniqueSalt, initCode: _initCode})));
         vm.deal(address(newWallet), 100 ether);
         vm.stopPrank();
+        console2.log("SCW address:", address(newWallet));
         return newWallet;
     }
 

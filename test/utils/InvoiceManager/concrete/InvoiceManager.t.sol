@@ -46,6 +46,8 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
     event TokenRemovedFromWhitelist(address indexed token, address indexed removedBy);
 
+    event TokensCreditedToInvoice(address indexed sessionKey, address indexed token, uint256 amount);
+
     /*//////////////////////////////////////////////////////////////
                                 SETUP
     //////////////////////////////////////////////////////////////*/
@@ -182,7 +184,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         assertTrue(invoiceManager.bidHashExists(DEFAULT_BID_HASH));
 
         // Verify invoice data
-        (InvoiceManager.Invoice memory invoice, TokenData[] memory tokenData) =
+        (InvoiceManager.Invoice memory invoice, InvoiceManager.InvoiceTokenData[] memory tokenData) =
             invoiceManager.getInvoice(sessionKey.pub);
 
         assertEq(invoice.data.smartWallet, address(scw));
@@ -197,6 +199,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         for (uint256 i; i < tokenData.length; ++i) {
             assertEq(tokenData[i].token, defaultTokenData[i].token);
             assertEq(tokenData[i].amount, defaultTokenData[i].amount);
+            assertEq(tokenData[i].creditedAmount, 0);
         }
 
         vm.stopPrank();
@@ -298,11 +301,14 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
     function test_settleInvoice_success_asSettler_emitsEvent() public withSampleInvoice {
         address sessionKey = sessionKey.pub;
-
+        // Mint tokens to contract
+        _mintTokensToInvoiceManager();
+        // Credit tokens before settlement
+        _creditTokensToInvoice(sessionKey);
         vm.expectEmit(true, true, true, false);
         emit InvoiceSettled(sessionKey, DEFAULT_BID_HASH, solver.pub);
-
-        _settleInvoiceAsSettler(sessionKey);
+        vm.prank(settler.pub);
+        invoiceManager.settleInvoice(sessionKey);
     }
 
     function test_settleInvoice_success_asSettler_transfersTokens() public withSampleInvoice {
@@ -329,10 +335,14 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         uint256 initialFeeReceiverUSDC = testUSDC.balanceOf(feeReceiver.pub);
         uint256 initialSolverUSDC = testUSDC.balanceOf(solver.pub);
 
-        vm.expectEmit(true, true, false, false);
+        // Mint tokens to contract
+        _mintTokensToInvoiceManager();
+        // Credit tokens before settlement
+        _creditTokensToInvoice(sessionKey);
+        vm.expectEmit(true, true, true, false);
         emit InvoiceSettled(sessionKey, DEFAULT_BID_HASH, solver.pub);
-
-        _settleInvoiceAsSmartWallet(sessionKey, address(scw));
+        vm.prank(settler.pub);
+        invoiceManager.settleInvoice(sessionKey);
 
         // Verify invoice is deleted
         assertFalse(invoiceManager.invoiceExists(sessionKey));
@@ -389,10 +399,12 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         uint256 initialFeeReceiverBalance = testUSDC.balanceOf(feeReceiver.pub);
         uint256 initialSolverBalance = testUSDC.balanceOf(solver.pub);
 
-        vm.expectEmit(true, true, false, true);
+        // Credit tokens before settlement
+        _creditTokensToInvoice(sessionKey);
+        vm.expectEmit(true, true, true, false);
         emit InvoiceSettled(sessionKey, DEFAULT_BID_HASH, solver.pub);
-
-        _settleInvoiceAsSettler(sessionKey);
+        vm.prank(settler.pub);
+        invoiceManager.settleInvoice(sessionKey);
 
         assertEq(testUSDC.balanceOf(feeReceiver.pub), initialFeeReceiverBalance + expectedFee);
         assertEq(testUSDC.balanceOf(solver.pub), initialSolverBalance + expectedSolverAmount);
@@ -430,9 +442,12 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH);
 
         address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+
+        invoiceManager.creditTokensToInvoice(sessionKey, address(testUSDC), DEFAULT_USDC_AMOUNT);
+        invoiceManager.creditTokensToInvoice(sessionKey, address(testUSDT), DEFAULT_USDT_AMOUNT);
+        invoiceManager.creditTokensToInvoice(sessionKey, address(testDAI), DEFAULT_DAI_AMOUNT);
         vm.stopPrank();
 
-        // Mint enough USDC and USDT, but not enough DAI
         testUSDC.mint(address(invoiceManager), DEFAULT_USDC_AMOUNT);
         testUSDT.mint(address(invoiceManager), DEFAULT_USDT_AMOUNT);
         testDAI.mint(address(invoiceManager), DEFAULT_DAI_AMOUNT - 1); // 1 wei short
@@ -499,42 +514,77 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         uint256 expectedUSDTFee = _calculateExpectedFeeForToken(address(testUSDT), 0);
         uint256 expectedDAIFee = _calculateExpectedFeeForToken(address(testDAI), 0);
 
-        // Expect individual token payment events with calculated fees
-        vm.expectEmit(true, true, true, true);
-        emit TokenPaid(
-            sessionKey,
-            solver.pub,
-            address(testUSDC),
-            DEFAULT_USDC_AMOUNT,
-            expectedUSDCFee,
-            DEFAULT_USDC_AMOUNT - expectedUSDCFee
-        );
-
-        vm.expectEmit(true, true, true, true);
-        emit TokenPaid(
-            sessionKey,
-            solver.pub,
-            address(testUSDT),
-            DEFAULT_USDT_AMOUNT,
-            expectedUSDTFee,
-            DEFAULT_USDT_AMOUNT - expectedUSDTFee
-        );
-
-        vm.expectEmit(true, true, true, true);
-        emit TokenPaid(
-            sessionKey,
-            solver.pub,
-            address(testDAI),
-            DEFAULT_DAI_AMOUNT,
-            expectedDAIFee,
-            DEFAULT_DAI_AMOUNT - expectedDAIFee
-        );
-
-        // Expect settlement event
-        vm.expectEmit(true, true, true, false);
-        emit InvoiceSettled(sessionKey, DEFAULT_BID_HASH, solver.pub);
+        // Start recording logs
+        vm.recordLogs();
 
         _settleInvoiceAsSettler(sessionKey);
+
+        // Get all recorded logs
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        // Verify we have the expected number of events
+        // 3 TokensCreditedToInvoice + 3 TokenPaid + 1 InvoiceSettled = 7 events minimum
+        assertGe(logs.length, 7, "Should have at least 7 events");
+
+        // Find and verify TokensCreditedToInvoice events
+        uint256 creditEventCount;
+        uint256 paymentEventCount;
+        uint256 settlementEventCount;
+
+        for (uint256 i; i < logs.length; ++i) {
+            // TokensCreditedToInvoice event signature
+            if (logs[i].topics[0] == keccak256("TokensCreditedToInvoice(address,address,uint256)")) {
+                creditEventCount++;
+            }
+            // TokenPaid event signature
+            else if (logs[i].topics[0] == keccak256("TokenPaid(address,address,address,uint256,uint256,uint256)")) {
+                paymentEventCount++;
+
+                // Decode and verify TokenPaid event data
+                address sessionKeyFromEvent = address(uint160(uint256(logs[i].topics[1])));
+                address solverFromEvent = address(uint160(uint256(logs[i].topics[2])));
+                address tokenFromEvent = address(uint160(uint256(logs[i].topics[3])));
+
+                assertEq(sessionKeyFromEvent, sessionKey, "SessionKey should match");
+                assertEq(solverFromEvent, solver.pub, "Solver should match");
+
+                // Decode the data portion for amounts
+                (uint256 totalTokens, uint256 pulseFee, uint256 solverAmount) =
+                    abi.decode(logs[i].data, (uint256, uint256, uint256));
+
+                if (tokenFromEvent == address(testUSDC)) {
+                    assertEq(totalTokens, DEFAULT_USDC_AMOUNT, "USDC total should match");
+                    assertEq(pulseFee, expectedUSDCFee, "USDC fee should match");
+                    assertEq(solverAmount, DEFAULT_USDC_AMOUNT - expectedUSDCFee, "USDC solver amount should match");
+                } else if (tokenFromEvent == address(testUSDT)) {
+                    assertEq(totalTokens, DEFAULT_USDT_AMOUNT, "USDT total should match");
+                    assertEq(pulseFee, expectedUSDTFee, "USDT fee should match");
+                    assertEq(solverAmount, DEFAULT_USDT_AMOUNT - expectedUSDTFee, "USDT solver amount should match");
+                } else if (tokenFromEvent == address(testDAI)) {
+                    assertEq(totalTokens, DEFAULT_DAI_AMOUNT, "DAI total should match");
+                    assertEq(pulseFee, expectedDAIFee, "DAI fee should match");
+                    assertEq(solverAmount, DEFAULT_DAI_AMOUNT - expectedDAIFee, "DAI solver amount should match");
+                }
+            }
+            // InvoiceSettled event signature
+            else if (logs[i].topics[0] == keccak256("InvoiceSettled(address,bytes32,address)")) {
+                settlementEventCount++;
+
+                // Verify settlement event data
+                address sessionKeyFromEvent = address(uint160(uint256(logs[i].topics[1])));
+                bytes32 bidHashFromEvent = logs[i].topics[2];
+                address solverFromEvent = address(uint160(uint256(logs[i].topics[3])));
+
+                assertEq(sessionKeyFromEvent, sessionKey, "Settlement sessionKey should match");
+                assertEq(bidHashFromEvent, DEFAULT_BID_HASH, "Settlement bidHash should match");
+                assertEq(solverFromEvent, solver.pub, "Settlement solver should match");
+            }
+        }
+
+        // Verify we got the expected number of each event type
+        assertEq(creditEventCount, 3, "Should have 3 TokensCreditedToInvoice events");
+        assertEq(paymentEventCount, 3, "Should have 3 TokenPaid events");
+        assertEq(settlementEventCount, 1, "Should have 1 InvoiceSettled event");
 
         // Fee receiver should get the calculated default fees
         assertEq(testUSDC.balanceOf(feeReceiver.pub), initialFeeReceiverBalance + expectedUSDCFee);
@@ -675,7 +725,8 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
         // Verify data exists before cancellation
         assertTrue(invoiceManager.bidHashExists(DEFAULT_BID_HASH), "Bid hash should exist");
-        (InvoiceManager.Invoice memory invoice, TokenData[] memory tokens) = invoiceManager.getInvoice(sessionKey);
+        (InvoiceManager.Invoice memory invoice, InvoiceManager.InvoiceTokenData[] memory tokens) =
+            invoiceManager.getInvoice(sessionKey);
         assertGt(tokens.length, 0, "Token data should exist");
 
         // Verify solver has this invoice
@@ -834,7 +885,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.stopPrank();
 
         // Verify all token data exists
-        (, TokenData[] memory tokens) = invoiceManager.getInvoice(sessionKey.pub);
+        (, InvoiceManager.InvoiceTokenData[] memory tokens) = invoiceManager.getInvoice(sessionKey.pub);
         assertEq(tokens.length, 4, "Should have 4 tokens");
 
         string memory reason = "Multiple tokens test";
@@ -1778,5 +1829,164 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
             abi.encode(newAccount, invoiceManager.FEE_MANAGER_ROLE())
         );
         invoiceManager.updateSolverFee(solver.pub, 50);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                      CREDIT TOKENS TO INVOICE TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_creditTokensToInvoice_success() public withSampleInvoice {
+        address sessionKey = sessionKey.pub;
+
+        vm.expectEmit(true, true, false, true);
+        emit TokensCreditedToInvoice(sessionKey, address(testUSDC), DEFAULT_USDC_AMOUNT);
+
+        vm.prank(credibleAccount.pub);
+        invoiceManager.creditTokensToInvoice(sessionKey, address(testUSDC), DEFAULT_USDC_AMOUNT);
+
+        // Verify token is credited
+        (, InvoiceManager.InvoiceTokenData[] memory tokens) = invoiceManager.getInvoice(sessionKey);
+        bool found = false;
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (tokens[i].token == address(testUSDC)) {
+                assertEq(tokens[i].creditedAmount, DEFAULT_USDC_AMOUNT);
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found, "USDC should be found and credited");
+    }
+
+    function test_creditTokensToInvoice_success_allTokens() public withSampleInvoice {
+        address sessionKey = sessionKey.pub;
+
+        vm.startPrank(credibleAccount.pub);
+        invoiceManager.creditTokensToInvoice(sessionKey, address(testUSDC), DEFAULT_USDC_AMOUNT);
+        invoiceManager.creditTokensToInvoice(sessionKey, address(testUSDT), DEFAULT_USDT_AMOUNT);
+        invoiceManager.creditTokensToInvoice(sessionKey, address(testDAI), DEFAULT_DAI_AMOUNT);
+        vm.stopPrank();
+
+        // Verify all tokens credited
+        (, InvoiceManager.InvoiceTokenData[] memory tokens) = invoiceManager.getInvoice(sessionKey);
+        for (uint256 i; i < tokens.length; ++i) {
+            assertEq(tokens[i].creditedAmount, tokens[i].amount, "Token should be fully credited");
+        }
+    }
+
+    function test_creditTokensToInvoice_revertIf_notCredibleAccountRole() public withSampleInvoice {
+        vm.startPrank(alice.pub); // Not credible account role
+        _toRevert(
+            IAccessControl.AccessControlUnauthorizedAccount.selector,
+            abi.encode(alice.pub, invoiceManager.CREDIBLE_ACCOUNT_ROLE())
+        );
+        invoiceManager.creditTokensToInvoice(sessionKey.pub, address(testUSDC), DEFAULT_USDC_AMOUNT);
+    }
+
+    function test_creditTokensToInvoice_revertIf_invoiceNotFound() public withSetupInvoiceManager {
+        address nonExistentSessionKey = makeAddr("nonExistentSessionKey");
+
+        vm.prank(credibleAccount.pub);
+        _toRevert(InvoiceManager.IM_InvoiceNotFound.selector, hex"");
+        invoiceManager.creditTokensToInvoice(nonExistentSessionKey, address(testUSDC), DEFAULT_USDC_AMOUNT);
+    }
+
+    function test_creditTokensToInvoice_revertIf_tokenNotFoundInInvoice() public withSampleInvoice {
+        vm.prank(credibleAccount.pub);
+        _toRevert(
+            InvoiceManager.IM_TokenNotFoundInInvoice.selector, abi.encode(sessionKey.pub, address(nonWhitelistedToken))
+        );
+        invoiceManager.creditTokensToInvoice(sessionKey.pub, address(nonWhitelistedToken), 1000);
+    }
+
+    function test_creditTokensToInvoice_revertIf_tokenAlreadyCredited() public withSampleInvoice {
+        address sessionKey = sessionKey.pub;
+
+        vm.startPrank(credibleAccount.pub);
+        // Credit once
+        invoiceManager.creditTokensToInvoice(sessionKey, address(testUSDC), DEFAULT_USDC_AMOUNT);
+
+        // Try to credit again
+        _toRevert(
+            InvoiceManager.IM_TokenOverCredited.selector,
+            abi.encode(sessionKey, address(testUSDC), DEFAULT_USDC_AMOUNT, DEFAULT_USDC_AMOUNT * 2)
+        );
+        invoiceManager.creditTokensToInvoice(sessionKey, address(testUSDC), DEFAULT_USDC_AMOUNT);
+        vm.stopPrank();
+    }
+
+    function test_creditTokensToInvoice_revertIf_amountMismatch() public withSampleInvoice {
+        address sessionKey = sessionKey.pub;
+        uint256 wrongAmount = DEFAULT_USDC_AMOUNT + 1000;
+
+        vm.prank(credibleAccount.pub);
+        _toRevert(
+            InvoiceManager.IM_TokenOverCredited.selector,
+            abi.encode(sessionKey, address(testUSDC), DEFAULT_USDC_AMOUNT, wrongAmount)
+        );
+        invoiceManager.creditTokensToInvoice(sessionKey, address(testUSDC), wrongAmount);
+    }
+
+    function test_settleInvoice_revertIf_tokensNotCredited() public withSampleInvoice {
+        address sessionKey = sessionKey.pub;
+        _mintTokensToInvoiceManager();
+
+        // Don't credit tokens, try to settle directly
+        vm.prank(settler.pub);
+        _toRevert(
+            InvoiceManager.IM_InvoiceNotFullyCredited.selector,
+            abi.encode(sessionKey, address(testUSDC), DEFAULT_USDC_AMOUNT, 0)
+        );
+        invoiceManager.settleInvoice(sessionKey);
+    }
+
+    function test_settleInvoice_revertIf_partiallyCredited() public withSampleInvoice {
+        address sessionKey = sessionKey.pub;
+        _mintTokensToInvoiceManager();
+
+        // Credit only one token
+        vm.prank(credibleAccount.pub);
+        invoiceManager.creditTokensToInvoice(sessionKey, address(testUSDC), DEFAULT_USDC_AMOUNT);
+
+        // Try to settle - should fail because DAI and USDT not credited
+        vm.prank(settler.pub);
+        _toRevert(
+            InvoiceManager.IM_InvoiceNotFullyCredited.selector,
+            abi.encode(sessionKey, address(testUSDT), DEFAULT_USDT_AMOUNT, 0)
+        );
+        invoiceManager.settleInvoice(sessionKey);
+    }
+
+    function test_settleInvoice_success_afterFullCrediting() public withSampleInvoice {
+        address sessionKey = sessionKey.pub;
+        _mintTokensToInvoiceManager();
+        _creditTokensToInvoice(sessionKey);
+
+        uint256 initialSolverBalance = testUSDC.balanceOf(solver.pub);
+        uint256 expectedAmount = DEFAULT_USDC_AMOUNT - _calculateExpectedFeeForToken(address(testUSDC), 0);
+
+        vm.prank(settler.pub);
+        invoiceManager.settleInvoice(sessionKey);
+
+        assertEq(testUSDC.balanceOf(solver.pub), initialSolverBalance + expectedAmount);
+        assertFalse(invoiceManager.invoiceExists(sessionKey));
+    }
+
+    function test_getInvoicePaymentStatus_success_nothingCredited() public withSampleInvoice {
+        (address[] memory tokens, uint256[] memory expectedAmounts, uint256[] memory creditedAmounts, bool isFullyPaid)
+        = invoiceManager.getInvoicePaymentStatus(sessionKey.pub);
+
+        assertEq(tokens.length, 3);
+        assertFalse(isFullyPaid);
+        for (uint256 i = 0; i < tokens.length; i++) {
+            assertGt(expectedAmounts[i], 0);
+            assertEq(creditedAmounts[i], 0);
+        }
+    }
+
+    function test_getInvoicePaymentStatus_success_fullyCredited() public withSampleInvoice {
+        _creditTokensToInvoice(sessionKey.pub);
+
+        (,,, bool isFullyPaid) = invoiceManager.getInvoicePaymentStatus(sessionKey.pub);
+        assertTrue(isFullyPaid);
     }
 }

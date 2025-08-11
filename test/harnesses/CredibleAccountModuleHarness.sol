@@ -22,13 +22,6 @@ contract CredibleAccountModuleHarness is CredibleAccountModule {
         return _validateBatchCall(_callData, _sessionKey, _userOpSender);
     }
 
-    function exposed_validateTokenData(address _sessionKey, address _userOpSender, uint256 _amount, address _token)
-        external
-        returns (bool)
-    {
-        return _validateTokenData(_sessionKey, _userOpSender, _amount, _token);
-    }
-
     function exposed_digestClaimTx(bytes calldata _data)
         external
         pure

@@ -117,6 +117,9 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         usdc.mint(address(scw), _lockedAmounts[0]);
         dai.mint(address(scw), _lockedAmounts[1]);
         usdt.mint(address(scw), _lockedAmounts[2]);
+        usdc.approve(address(cam), _lockedAmounts[0]);
+        dai.approve(address(cam), _lockedAmounts[1]);
+        usdt.approve(address(cam), _lockedAmounts[2]);
 
         // Enable session key in a separate block to reduce stack depth
         {
@@ -159,19 +162,19 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         {
             Execution[] memory batch = new Execution[](3);
             batch[0] = Execution({
-                target: address(usdc),
+                target: address(cam),
                 value: 0,
-                callData: _createTokenTransferExecution(address(im), _lockedAmounts[0])
+                callData: _createClaimExecution(sk.pub, address(usdc), _lockedAmounts[0])
             });
             batch[1] = Execution({
-                target: address(dai),
+                target: address(cam),
                 value: 0,
-                callData: _createTokenTransferExecution(address(im), _lockedAmounts[1])
+                callData: _createClaimExecution(sk.pub, address(dai), _lockedAmounts[1])
             });
             batch[2] = Execution({
-                target: address(usdt),
+                target: address(cam),
                 value: 0,
-                callData: _createTokenTransferExecution(address(im), _lockedAmounts[2])
+                callData: _createClaimExecution(sk.pub, address(usdt), _lockedAmounts[2])
             });
 
             bytes memory opCalldata =
@@ -181,8 +184,9 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         }
 
         // Disable the session key
+        vm.startPrank(address(scw));
         cam.disableSessionKey(sk.pub);
-
+        vm.stopPrank();
         // Verify results
         assertEq(cam.getSessionKeysByWallet().length, 0);
         assertEq(cam.sessionKeyToWallet(sk.pub), address(0), "Session key should be disabled");
@@ -197,6 +201,9 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         usdc.mint(address(scw), _claimAmounts[0]);
         dai.mint(address(scw), _claimAmounts[1]);
         usdt.mint(address(scw), _claimAmounts[2]);
+        usdc.approve(address(cam), _claimAmounts[0]);
+        dai.approve(address(cam), _claimAmounts[1]);
+        usdt.approve(address(cam), _claimAmounts[2]);
 
         // Enable session key
         TokenData[] memory tokenAmounts = new TokenData[](tokens.length);

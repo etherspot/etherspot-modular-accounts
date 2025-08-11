@@ -73,6 +73,14 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @param updated The new InvoiceManager address.
     event CredibleAccountModule_InvoiceManagerUpdated(address indexed old, address indexed updated);
 
+    /// @notice Emitted when tokens are successfully claimed from a session key
+    /// @dev This event is fired during the execution phase when claim() is called and
+    ///      tokens are transferred from the smart wallet to the InvoiceManager
+    /// @param sessionKey The session key from which tokens were claimed
+    /// @param token The address of the token that was claimed
+    /// @param amount The amount of tokens that were claimed and transferred
+    event CredibleAccountModule_TokensClaimed(address sessionKey, address token, uint256 amount);
+
     /*//////////////////////////////////////////////////////////////
                                 FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -226,4 +234,18 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @dev This function is called after the main execution
     /// @param hookData The data prepared by preCheck function
     function postCheck(bytes calldata hookData) external;
+
+    /*//////////////////////////////////////////////////////////////
+                        V2 CLAIMING FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Claims tokens from a session key and transfers them to the InvoiceManager
+    /// @dev This is the main execution function that performs the actual token transfer.
+    ///      It validates the session key exists, checks token availability, updates state,
+    ///      and transfers tokens to the InvoiceManager while crediting them to the invoice.
+    /// @param _sessionKey The session key from which to claim tokens
+    /// @param _token The address of the token to claim
+    /// @param _amount The amount of tokens to claim
+    /// @return bool True if the claim was successful, false otherwise
+    function claim(address _sessionKey, address _token, uint256 _amount) external returns (bool);
 }

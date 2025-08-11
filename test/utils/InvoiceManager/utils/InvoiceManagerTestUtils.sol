@@ -102,7 +102,6 @@ contract InvoiceManagerTestUtils is ModularTestBase {
         sessionKey2 = _createUser("Session Key 2");
         newAccount = makeAddr("newAccount");
         scw2 = _createSCW(newAccount);
-        console2.log("NEW ACCOUNT ADDRESS:", newAccount);
 
         // Create additional test tokens
         testUSDC = new TestUSDC();
@@ -194,11 +193,11 @@ contract InvoiceManagerTestUtils is ModularTestBase {
         testBUSD.mint(address(invoiceManager), DEFAULT_BUSD_AMOUNT * 10);
     }
 
-    function _mintTokensToUser(User memory user, uint256 multiplier) internal {
-        testUSDC.mint(user.pub, DEFAULT_USDC_AMOUNT * multiplier);
-        testUSDT.mint(user.pub, DEFAULT_USDT_AMOUNT * multiplier);
-        testDAI.mint(user.pub, DEFAULT_DAI_AMOUNT * multiplier);
-        testBUSD.mint(user.pub, DEFAULT_BUSD_AMOUNT * multiplier);
+    function _mintTokensToUser(User memory _user, uint256 _multiplier) internal {
+        testUSDC.mint(_user.pub, DEFAULT_USDC_AMOUNT * _multiplier);
+        testUSDT.mint(_user.pub, DEFAULT_USDT_AMOUNT * _multiplier);
+        testDAI.mint(_user.pub, DEFAULT_DAI_AMOUNT * _multiplier);
+        testBUSD.mint(_user.pub, DEFAULT_BUSD_AMOUNT * _multiplier);
     }
 
     function _createInvoiceData(address _smartWallet, address _sessionKey, address _solver, bytes32 _bidHash)
@@ -209,58 +208,58 @@ contract InvoiceManagerTestUtils is ModularTestBase {
         return abi.encode(_smartWallet, _sessionKey, _solver, _bidHash, block.chainid, defaultTokenData);
     }
 
-    function _createTokenData(address[] memory tokens, uint256[] memory amounts)
+    function _createTokenData(address[] memory _tokens, uint256[] memory _amounts)
         internal
         pure
         returns (TokenData[] memory tokenData)
     {
-        require(tokens.length == amounts.length, "Arrays length mismatch");
+        require(_tokens.length == _amounts.length, "Arrays length mismatch");
 
-        tokenData = new TokenData[](tokens.length);
-        for (uint256 i = 0; i < tokens.length; i++) {
-            tokenData[i] = TokenData({token: tokens[i], amount: amounts[i]});
+        tokenData = new TokenData[](_tokens.length);
+        for (uint256 i = 0; i < _tokens.length; i++) {
+            tokenData[i] = TokenData({token: _tokens[i], amount: _amounts[i]});
         }
     }
 
-    function _createSingleTokenData(address token, uint256 amount)
+    function _createSingleTokenData(address _token, uint256 _amount)
         internal
         pure
         returns (TokenData[] memory tokenData)
     {
         tokenData = new TokenData[](1);
-        tokenData[0] = TokenData({token: token, amount: amount});
+        tokenData[0] = TokenData({token: _token, amount: _amount});
     }
 
-    function _calculateExpectedFees(TokenData[] memory tokenData, uint256 feePercentage)
+    function _calculateExpectedFees(TokenData[] memory _tokenData, uint256 _feePercentage)
         internal
         pure
         returns (uint256 totalFees, uint256 totalSolverAmount)
     {
-        for (uint256 i = 0; i < tokenData.length; i++) {
-            uint256 fee = (tokenData[i].amount * feePercentage) / 10000; // BASIS_POINTS
-            uint256 solverAmount = tokenData[i].amount - fee;
+        for (uint256 i = 0; i < _tokenData.length; i++) {
+            uint256 fee = (_tokenData[i].amount * _feePercentage) / 10000; // BASIS_POINTS
+            uint256 solverAmount = _tokenData[i].amount - fee;
             totalFees += fee;
             totalSolverAmount += solverAmount;
         }
     }
 
-    function _getTokenBalances(address account, address[] memory tokens)
+    function _getTokenBalances(address _account, address[] memory _tokens)
         internal
         view
         returns (uint256[] memory balances)
     {
-        balances = new uint256[](tokens.length);
-        for (uint256 i = 0; i < tokens.length; i++) {
-            balances[i] = IERC20(tokens[i]).balanceOf(account);
+        balances = new uint256[](_tokens.length);
+        for (uint256 i = 0; i < _tokens.length; i++) {
+            balances[i] = IERC20(_tokens[i]).balanceOf(_account);
         }
     }
 
-    function _createMultipleInvoices(uint256 count) internal returns (address[] memory sessionKeys) {
-        sessionKeys = new address[](count);
+    function _createMultipleInvoices(uint256 _count) internal returns (address[] memory sessionKeys) {
+        sessionKeys = new address[](_count);
 
         vm.startPrank(credibleAccount.pub);
 
-        for (uint256 i; i < count; ++i) {
+        for (uint256 i; i < _count; ++i) {
             bytes32 bidHash = keccak256(abi.encodePacked("bid_hash_", i));
             address sessionKey = address(uint160(uint256(keccak256(abi.encodePacked("session_key_", i)))));
 
@@ -272,24 +271,40 @@ contract InvoiceManagerTestUtils is ModularTestBase {
         vm.stopPrank();
     }
 
-    function _settleInvoiceAsSettler(address sessionKey) internal {
+    function _settleInvoiceAsSettler(address _sessionKey) internal {
+        // Mint tokens to contract
+        _mintTokensToInvoiceManager();
+
+        // Credit tokens before settlement
+        _creditTokensToInvoice(_sessionKey);
         vm.prank(settler.pub);
-        invoiceManager.settleInvoice(sessionKey);
+        invoiceManager.settleInvoice(_sessionKey);
     }
 
-    function _settleInvoiceAsSmartWallet(address sessionKey, address smartWallet) internal {
-        vm.prank(smartWallet);
-        invoiceManager.settleInvoice(sessionKey);
+    function _settleInvoiceAsSmartWallet(address _sessionKey, address _smartWallet) internal {
+        vm.prank(_smartWallet);
+        invoiceManager.settleInvoice(_sessionKey);
     }
 
-    function _calculateExpectedFeeForToken(address token, uint256 feeOverride) internal view returns (uint256) {
+    function _calculateExpectedFeeForToken(address _token, uint256 _feeOverride) internal view returns (uint256) {
         // Use the same constant as the contract
-        uint256 pulseFee = feeOverride == 0 ? invoiceManager.PULSE_BASE_FEE() : feeOverride;
+        uint256 pulseFee = _feeOverride == 0 ? invoiceManager.PULSE_BASE_FEE() : _feeOverride;
 
-        try IERC20Metadata(token).decimals() returns (uint8 decimals) {
+        try IERC20Metadata(_token).decimals() returns (uint8 decimals) {
             return (pulseFee * 10 ** decimals) / 100;
         } catch {
             return (pulseFee * 10 ** 18) / 100;
         }
+    }
+
+    function _creditTokensToInvoice(address _sessionKey) internal {
+        (InvoiceManager.Invoice memory invoice, InvoiceManager.InvoiceTokenData[] memory tokens) =
+            invoiceManager.getInvoice(_sessionKey);
+
+        vm.startPrank(credibleAccount.pub);
+        for (uint256 i; i < tokens.length; ++i) {
+            invoiceManager.creditTokensToInvoice(_sessionKey, tokens[i].token, tokens[i].amount);
+        }
+        vm.stopPrank();
     }
 }

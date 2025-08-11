@@ -66,6 +66,9 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         usdc.mint(address(scw), amounts[0]);
         dai.mint(address(scw), amounts[1]);
         usdt.mint(address(scw), amounts[2]);
+        usdc.approve(address(cam), amounts[0]);
+        dai.approve(address(cam), amounts[1]);
+        usdt.approve(address(cam), amounts[2]);
         vm.stopPrank();
     }
 
@@ -159,6 +162,42 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         return (op, hash);
     }
 
+    // function _claimTokensBySolver(
+    //     User memory _user,
+    //     ModularEtherspotWallet _scw,
+    //     User memory _sessionKey,
+    //     uint256 _usdc,
+    //     uint256 _dai,
+    //     uint256 _usdt
+    // ) internal {
+    //     console.log("_claimTokensBySolver called with wallet:", address(_scw));
+    //     bytes memory usdcData = _createTokenTransferExecution(address(im), _usdc);
+    //     bytes memory daiData = _createTokenTransferExecution(address(im), _dai);
+    //     bytes memory usdtData = _createTokenTransferExecution(address(im), _usdt);
+    //     Execution[] memory batch = new Execution[](3);
+    //     batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
+    //     batch[1] = Execution({target: address(dai), value: 0, callData: daiData});
+    //     batch[2] = Execution({target: address(usdt), value: 0, callData: usdtData});
+    //     bytes memory opCalldata =
+    //         abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
+    //     (PackedUserOperation memory op,) =
+    //         _createUserOpWithSignature(_sessionKey, address(_scw), address(cam), opCalldata);
+    //     // Execute the user operation
+    //     _executeUserOp(op);
+    // }
+
+    /*//////////////////////////////////////////////////////////////
+                        V2 NEW CLAIMING UTILS
+    //////////////////////////////////////////////////////////////*/
+
+    function _createClaimExecution(address _sessionKey, address _token, uint256 _amount)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encodeWithSelector(CredibleAccountModule.claim.selector, _sessionKey, _token, _amount);
+    }
+
     function _claimTokensBySolver(
         User memory _user,
         ModularEtherspotWallet _scw,
@@ -167,14 +206,13 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         uint256 _dai,
         uint256 _usdt
     ) internal {
-        console.log("_claimTokensBySolver called with wallet:", address(_scw));
-        bytes memory usdcData = _createTokenTransferExecution(address(im), _usdc);
-        bytes memory daiData = _createTokenTransferExecution(address(im), _dai);
-        bytes memory usdtData = _createTokenTransferExecution(address(im), _usdt);
+        bytes memory usdcData = _createClaimExecution(_sessionKey.pub, address(usdc), _usdc);
+        bytes memory daiData = _createClaimExecution(_sessionKey.pub, address(dai), _dai);
+        bytes memory usdtData = _createClaimExecution(_sessionKey.pub, address(usdt), _usdt);
         Execution[] memory batch = new Execution[](3);
-        batch[0] = Execution({target: address(usdc), value: 0, callData: usdcData});
-        batch[1] = Execution({target: address(dai), value: 0, callData: daiData});
-        batch[2] = Execution({target: address(usdt), value: 0, callData: usdtData});
+        batch[0] = Execution({target: address(cam), value: 0, callData: usdcData});
+        batch[1] = Execution({target: address(cam), value: 0, callData: daiData});
+        batch[2] = Execution({target: address(cam), value: 0, callData: usdtData});
         bytes memory opCalldata =
             abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
         (PackedUserOperation memory op,) =

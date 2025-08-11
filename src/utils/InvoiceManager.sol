@@ -44,7 +44,7 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
     mapping(bytes32 => address) public bidHashToSessionKey;
     mapping(address => Solver) public solvers;
     mapping(address => EnumerableSet.AddressSet) private solverInvoices;
-    mapping(address => TokenData[]) public invoiceTokenData;
+    mapping(address => InvoiceTokenData[]) public invoiceTokenData;
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -66,6 +66,11 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
     error IM_InsufficientContractBalance(address token, uint256 requiredAmount, uint256 availableBalance);
     error IM_ArraysLengthMismatch();
     error IM_InvalidChainId(uint256 chainId);
+    error IM_TokenNotFoundInInvoice(address sessionKey, address token);
+    error IM_TokenAlreadyCredited(address sessionKey, address token);
+    error IM_TokenAmountMismatch(address sessionKey, address token, uint256 expected, uint256 actual);
+    error IM_TokenOverCredited(address sessionKey, address token, uint256 expected, uint256 attempted);
+    error IM_InvoiceNotFullyCredited(address sessionKey, address token, uint256 expected, uint256 credited);
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
@@ -74,7 +79,6 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
     modifier onlySettlerOrLinkedWallet(address _sessionKey) {
         // Check if caller has SETTLER_ROLE
         bool hasSettlerRole = hasRole(SETTLER_ROLE, msg.sender);
-
         // Check if caller is the smart wallet linked to the session key
         bool isLinkedWallet = false;
         if (_sessionKey != address(0)) {
@@ -82,7 +86,6 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
             InvoiceData memory invoiceData = invoices[_sessionKey].data;
             isLinkedWallet = (msg.sender == invoiceData.smartWallet);
         }
-
         if (!hasSettlerRole && !isLinkedWallet) {
             revert IM_UnauthorizedSettler(msg.sender, _sessionKey);
         }
@@ -125,19 +128,15 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
         ) {
             revert IM_InvalidAddress();
         }
-
         if (_whitelistedTokens.length == 0) {
             revert IM_EmptyTokenWhitelist();
         }
-
         _grantRole(DEFAULT_ADMIN_ROLE, _owner);
         _grantRole(CREDIBLE_ACCOUNT_ROLE, _credibleAccountModule);
         _grantRole(SETTLER_ROLE, _owner);
         _grantRole(FEE_MANAGER_ROLE, _feeManager);
         _grantRole(SOLVER_MANAGER_ROLE, _owner);
-
         feeReceiver = _feeReceiver;
-
         for (uint256 i; i < _whitelistedTokens.length; ++i) {
             if (_whitelistedTokens[i] == address(0)) {
                 revert IM_InvalidAddress();
@@ -174,12 +173,9 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
             uint256 chainId,
             TokenData[] memory tokenData
         ) = abi.decode(_invoiceData, (address, address, address, bytes32, uint256, TokenData[]));
-
         sessionKey = sessionKeyAddr;
-
         // Validate all parameters
         _validateInvoiceParameters(smartWallet, sessionKey, solver, chainId, bidHash, tokenData);
-
         // Create and store invoice
         _createAndStoreInvoice(sessionKey, smartWallet, solver, bidHash, chainId, tokenData);
     }
@@ -195,30 +191,70 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
     function settleInvoice(address _sessionKey) external onlySettlerOrLinkedWallet(_sessionKey) nonReentrant {
         Invoice storage invoice = invoices[_sessionKey];
         if (invoice.createdAt == 0) revert IM_InvoiceNotFound();
-
         bytes32 bidHash = invoice.data.bidHash;
         address solver = invoice.data.solver;
         if (!solvers[solver].isActive) revert IM_SolverInactive();
-
-        TokenData[] storage tokens = invoiceTokenData[_sessionKey];
+        InvoiceTokenData[] storage tokens = invoiceTokenData[_sessionKey];
         uint256 tokensLength = tokens.length;
         uint256 invoicePulseFee = invoice.pulseFee;
-
+        for (uint256 i; i < tokensLength; ++i) {
+            if (tokens[i].creditedAmount != tokens[i].amount) {
+                revert IM_InvoiceNotFullyCredited(
+                    _sessionKey, tokens[i].token, tokens[i].amount, tokens[i].creditedAmount
+                );
+            }
+        }
         // Process token transfers in a separate internal function to reduce stack depth
         _processTokenTransfers(_sessionKey, solver, tokens, tokensLength, invoicePulseFee);
-
         // Update solver stats
         unchecked {
             solvers[solver].successfulSettlements++;
         }
-
         // Clean up data
         delete bidHashToSessionKey[bidHash];
         delete invoices[_sessionKey];
         delete invoiceTokenData[_sessionKey];
         solverInvoices[solver].remove(_sessionKey);
-
         emit InvoiceSettled(_sessionKey, bidHash, solver);
+    }
+
+    /**
+     * @notice Credits tokens to a specific invoice, recording that tokens have been received
+     * @dev Only accounts with CREDIBLE_ACCOUNT_ROLE can credit tokens. This function is part
+     *      of the two-phase settlement process where tokens must be credited before settlement.
+     * @param _sessionKey The session key identifying the invoice
+     * @param _token The address of the token being credited
+     * @param _amount The amount of tokens being credited
+     *
+     */
+    function creditTokensToInvoice(address _sessionKey, address _token, uint256 _amount)
+        external
+        onlyRole(CREDIBLE_ACCOUNT_ROLE)
+    {
+        Invoice storage invoice = invoices[_sessionKey];
+        if (invoice.createdAt == 0) revert IM_InvoiceNotFound();
+        InvoiceTokenData[] storage tokenData = invoiceTokenData[_sessionKey];
+        bool tokenFound = false;
+        uint256 tokenIndex;
+        for (uint256 i; i < tokenData.length; ++i) {
+            if (tokenData[i].token == _token) {
+                tokenFound = true;
+                tokenIndex = i;
+                break;
+            }
+        }
+        if (!tokenFound) revert IM_TokenNotFoundInInvoice(_sessionKey, _token);
+        // Check if adding this amount would exceed expected
+        uint256 newCreditedAmount = tokenData[tokenIndex].creditedAmount + _amount;
+        if (newCreditedAmount > tokenData[tokenIndex].amount) {
+            revert IM_TokenOverCredited(_sessionKey, _token, tokenData[tokenIndex].amount, newCreditedAmount);
+        }
+        if (tokenData[tokenIndex].creditedAmount == tokenData[tokenIndex].amount) {
+            revert IM_TokenAlreadyCredited(_sessionKey, _token);
+        }
+        // 4. if checks passed then attribute to invoice
+        tokenData[tokenIndex].creditedAmount = newCreditedAmount;
+        emit TokensCreditedToInvoice(_sessionKey, _token, _amount);
     }
 
     /**
@@ -234,16 +270,13 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
         onlyRole(SOLVER_MANAGER_ROLE)
     {
         if (_solver == address(0)) revert IM_InvalidAddress();
-
         Solver storage solver = solvers[_solver];
         if (solver.solverAddress != address(0)) revert IM_SolverAlreadyExists();
-
         solver.solverAddress = _solver;
         solver.isActive = true;
         solver.successfulSettlements = 0;
         solver.pulseFee = _pulseFee; // 0 = use default calculated fee, >0 = use custom fee
         solver.name = _name;
-
         emit SolverOnboarded(_solver, _name, _pulseFee);
     }
 
@@ -257,10 +290,8 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
     function updateSolverFee(address _solver, uint256 _newFee) external onlyRole(FEE_MANAGER_ROLE) {
         Solver storage solver = solvers[_solver];
         if (solver.solverAddress == address(0)) revert IM_InvalidSolver();
-
         uint256 oldFee = solver.pulseFee;
         solver.pulseFee = _newFee;
-
         emit SolverFeeUpdated(_solver, oldFee, _newFee);
     }
 
@@ -272,10 +303,8 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
      */
     function offboardSolver(address _solver) external onlyRole(SOLVER_MANAGER_ROLE) {
         if (solvers[_solver].solverAddress == address(0)) revert IM_InvalidSolver();
-
         delete solverInvoices[_solver];
         delete solvers[_solver];
-
         emit SolverOffboarded(_solver);
     }
 
@@ -301,10 +330,8 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
     function cancelInvoice(address _sessionKey, string calldata _reason) external onlyRole(SETTLER_ROLE) {
         Invoice storage invoice = invoices[_sessionKey];
         if (invoice.createdAt == 0) revert IM_InvoiceNotFound();
-
         bytes32 bidHash = invoice.data.bidHash;
         address solver = invoice.data.solver;
-
         delete invoices[_sessionKey];
         delete invoiceTokenData[_sessionKey];
         delete bidHashToSessionKey[bidHash];
@@ -324,10 +351,8 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
      */
     function setFeeReceiver(address _feeReceiver) external onlyRole(FEE_MANAGER_ROLE) {
         if (_feeReceiver == address(0)) revert IM_InvalidAddress();
-
         address oldReceiver = feeReceiver;
         feeReceiver = _feeReceiver;
-
         emit FeeReceiverUpdated(oldReceiver, _feeReceiver);
     }
 
@@ -341,7 +366,6 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
      */
     function emergencyWithdraw(address _token, uint256 _amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (_amount == 0) revert IM_InvalidTokenAmount();
-
         uint256 contractBalance = IERC20(_token).balanceOf(address(this));
         if (contractBalance < _amount) {
             revert IM_InsufficientContractBalance(_token, _amount, contractBalance);
@@ -360,7 +384,7 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
      * @return tokenData Array of TokenData structs with token addresses and amounts
      * @dev Reverts if invoice does not exist
      */
-    function getInvoice(address _sessionKey) external view returns (Invoice memory, TokenData[] memory) {
+    function getInvoice(address _sessionKey) external view returns (Invoice memory, InvoiceTokenData[] memory) {
         Invoice storage invoice = invoices[_sessionKey];
         if (invoice.createdAt == 0) revert IM_InvoiceNotFound();
         return (invoice, invoiceTokenData[_sessionKey]);
@@ -375,6 +399,32 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
     function getInvoiceByBidHash(bytes32 _bidHash) external view returns (address sessionKey) {
         sessionKey = bidHashToSessionKey[_bidHash];
         if (sessionKey == address(0)) revert IM_InvoiceNotFound();
+    }
+
+    function getInvoicePaymentStatus(address _sessionKey)
+        external
+        view
+        returns (
+            address[] memory tokens,
+            uint256[] memory expectedAmounts,
+            uint256[] memory creditedAmounts,
+            bool isFullyPaid
+        )
+    {
+        InvoiceTokenData[] storage tokenData = invoiceTokenData[_sessionKey];
+        uint256 length = tokenData.length;
+        tokens = new address[](length);
+        expectedAmounts = new uint256[](length);
+        creditedAmounts = new uint256[](length);
+        isFullyPaid = true;
+        for (uint256 i; i < length; ++i) {
+            tokens[i] = tokenData[i].token;
+            expectedAmounts[i] = tokenData[i].amount;
+            creditedAmounts[i] = tokenData[i].creditedAmount;
+            if (tokenData[i].creditedAmount != tokenData[i].amount) {
+                isFullyPaid = false;
+            }
+        }
     }
 
     /**
@@ -396,12 +446,9 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
     function calculateInvoiceFees(address _sessionKey) external view returns (TokenData[] memory tokenFees) {
         Invoice storage invoice = invoices[_sessionKey];
         if (invoice.createdAt == 0) revert IM_InvoiceNotFound();
-
-        TokenData[] storage tokenData = invoiceTokenData[_sessionKey];
+        InvoiceTokenData[] storage tokenData = invoiceTokenData[_sessionKey];
         uint256 length = tokenData.length;
-
         tokenFees = new TokenData[](length);
-
         for (uint256 i; i < length; ++i) {
             uint256 fee = _calculateFeeForToken(tokenData[i].token, invoice.pulseFee);
             tokenFees[i] =
@@ -419,16 +466,13 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
         Invoice storage invoice = invoices[_sessionKey];
         if (invoice.createdAt == 0) return false;
         if (!solvers[invoice.data.solver].isActive) return false;
-
-        TokenData[] storage tokenData = invoiceTokenData[_sessionKey];
+        InvoiceTokenData[] storage tokenData = invoiceTokenData[_sessionKey];
         uint256 tokenDataLength = tokenData.length;
-
         for (uint256 i; i < tokenDataLength; ++i) {
             if (IERC20(tokenData[i].token).balanceOf(address(this)) < tokenData[i].amount) {
                 return false;
             }
         }
-
         return true;
     }
 
@@ -490,12 +534,11 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
     function getMultipleInvoices(address[] calldata _sessionKeys)
         external
         view
-        returns (Invoice[] memory invoices_, TokenData[][] memory tokenData_)
+        returns (Invoice[] memory invoices_, InvoiceTokenData[][] memory tokenData_)
     {
         uint256 sessionKeysLength = _sessionKeys.length;
         invoices_ = new Invoice[](sessionKeysLength);
-        tokenData_ = new TokenData[][](sessionKeysLength);
-
+        tokenData_ = new InvoiceTokenData[][](sessionKeysLength);
         for (uint256 i; i < sessionKeysLength; ++i) {
             address sessionKey = _sessionKeys[i];
             if (invoices[sessionKey].createdAt != 0) {
@@ -542,7 +585,6 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
     function addTokensToWhitelist(address[] calldata _tokens) external onlyRole(DEFAULT_ADMIN_ROLE) {
         uint256 tokensLength = _tokens.length;
         if (tokensLength == 0) revert IM_EmptyTokenData();
-
         for (uint256 i; i < tokensLength; ++i) {
             address token = _tokens[i];
             if (token == address(0)) revert IM_InvalidAddress();
@@ -559,7 +601,6 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
      */
     function removeTokenFromWhitelist(address _token) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (!whitelistedTokens.contains(_token)) revert IM_TokenNotWhitelisted(_token);
-
         whitelistedTokens.remove(_token);
         emit TokenRemovedFromWhitelist(_token, msg.sender);
     }
@@ -684,6 +725,18 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
                         INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    /**
+     * @notice Validates all parameters for invoice creation
+     * @dev Internal validation function that checks addresses, chain ID, solver status,
+     *      token whitelist, amounts, and prevents duplicate invoices
+     * @param smartWallet The smart wallet address for the invoice
+     * @param sessionKey The unique session key for the invoice
+     * @param solver The solver address handling the invoice
+     * @param chainId The chain ID (0 for any chain, or must match current)
+     * @param bidHash The unique bid hash for the invoice
+     * @param tokenData Array of token data containing addresses and amounts
+     *
+     */
     function _validateInvoiceParameters(
         address smartWallet,
         address sessionKey,
@@ -722,6 +775,18 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
         if (bidHashToSessionKey[bidHash] != address(0)) revert IM_BidHashAlreadyExists();
     }
 
+    /**
+     * @notice Creates and stores a new invoice with all associated data
+     * @dev Internal function that creates the invoice struct, stores token data,
+     *      updates mappings, and emits the creation event
+     * @param sessionKey The unique session key for the invoice
+     * @param smartWallet The smart wallet address for the invoice
+     * @param solver The solver address handling the invoice
+     * @param bidHash The unique bid hash for the invoice
+     * @param chainId The chain ID for the invoice
+     * @param tokenData Array of token data containing addresses and amounts
+     *
+     */
     function _createAndStoreInvoice(
         address sessionKey,
         address smartWallet,
@@ -748,7 +813,13 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
         // Store token data
         uint256 tokenDataLength = tokenData.length;
         for (uint256 i; i < tokenDataLength; ++i) {
-            invoiceTokenData[sessionKey].push(tokenData[i]);
+            invoiceTokenData[sessionKey].push(
+                InvoiceTokenData({
+                    token: tokenData[i].token,
+                    amount: tokenData[i].amount, // Expected amount
+                    creditedAmount: 0 // No tokens received yet
+                })
+            );
         }
 
         // Update mappings
@@ -775,7 +846,6 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
      */
     function _calculateFeeForToken(address _token, uint256 _feeOverride) internal view returns (uint256 fee) {
         uint256 pulseFee = _feeOverride == 0 ? PULSE_BASE_FEE : _feeOverride; // Default 5 cents = 0.05 tokens
-
         try IERC20Metadata(_token).decimals() returns (uint8 decimals) {
             // Convert cents to token amount: (cents * 10^decimals) / 100
             return (pulseFee * 10 ** decimals) / 100;
@@ -790,34 +860,29 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
     function _processTokenTransfers(
         address _sessionKey,
         address solver,
-        TokenData[] storage tokens,
+        InvoiceTokenData[] storage tokens,
         uint256 tokensLength,
         uint256 invoicePulseFee
     ) internal {
         for (uint256 i; i < tokensLength; ++i) {
             address token = tokens[i].token;
             uint256 amount = tokens[i].amount;
-
             uint256 contractBalance = IERC20(token).balanceOf(address(this));
             if (contractBalance < amount) {
                 revert IM_InsufficientContractBalance(token, amount, contractBalance);
             }
-
             uint256 pulseFee = _calculateFeeForToken(token, invoicePulseFee);
-
+            // TODO: check †his logic
             // Ensure fee doesn't exceed token amount
             if (pulseFee > amount) {
                 pulseFee = amount;
             }
-
             uint256 solverAmount = amount - pulseFee;
-
             // Transfer tokens
             if (pulseFee > 0) {
                 IERC20(token).safeTransfer(feeReceiver, pulseFee);
             }
             IERC20(token).safeTransfer(solver, solverAmount);
-
             emit TokenPaid(_sessionKey, solver, token, amount, pulseFee, solverAmount);
         }
     }

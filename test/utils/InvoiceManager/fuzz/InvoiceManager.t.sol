@@ -166,6 +166,11 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
             abi.encode(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH, TEST_CHAIN_ID, tokenData);
 
         address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+
+        // Credit tokens to invoice before settlement
+        invoiceManager.creditTokensToInvoice(sessionKey, address(mockToken6), amount6);
+        invoiceManager.creditTokensToInvoice(sessionKey, address(mockToken18), amount18);
+
         vm.stopPrank();
 
         // Record initial balances
@@ -410,6 +415,12 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
             abi.encode(address(scw), sessionKey, solver.pub, bidHash, TEST_CHAIN_ID, tokenData);
 
         address createdSessionKey = invoiceManager.createInvoice(createInvoiceData);
+
+        // Credit tokens to invoice before settlement
+        for (uint256 i; i < tokenCount; ++i) {
+            invoiceManager.creditTokensToInvoice(createdSessionKey, address(tokens[i]), tokenData[i].amount);
+        }
+
         vm.stopPrank();
 
         // Verify invoice creation
