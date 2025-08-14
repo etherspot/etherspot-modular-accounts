@@ -2570,6 +2570,47 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         assertTrue(result != VALIDATION_FAILED, "Validation should pass even with business logic errors");
     }
 
+    function test_validateUserOp_passesWithApproveSelector() public withRequiredModules {
+        _enableSessionKey(address(scw));
+
+        // Create approve operation targeting a token contract
+        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(im), amounts[0]);
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(usdc), 0, approveData))
+        ); // Target is token contract (not cam), which should be allowed for approve
+        (PackedUserOperation memory op, bytes32 hash) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
+
+        // Validation should pass for approve selector
+        uint256 result = cam.validateUserOp(op, hash);
+        assertTrue(result != VALIDATION_FAILED, "Validation should pass with approve selector");
+    }
+
+    function test_validateUserOp_passesWithBatchApproveAndClaim() public withRequiredModules {
+        _enableSessionKey(address(scw));
+
+        // Create approve operation targeting token contract
+        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(im), amounts[0]);
+
+        // Create claim operation targeting cam contract
+        bytes memory claimData = _createClaimExecution(sessionKey.pub, address(usdc), amounts[0]);
+
+        // Create batch with approve + claim
+        Execution[] memory batch = new Execution[](2);
+        batch[0] = Execution({target: address(usdc), value: 0, callData: approveData}); // Approve targets token
+        batch[1] = Execution({target: address(cam), value: 0, callData: claimData}); // Claim targets cam
+
+        bytes memory opCalldata =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
+        (PackedUserOperation memory op, bytes32 hash) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
+
+        // Validation should pass for batch with approve + claim
+        uint256 result = cam.validateUserOp(op, hash);
+        assertTrue(result != VALIDATION_FAILED, "Validation should pass with batch approve and claim");
+    }
+
     function test_validateUserOp_failsWithWrongTarget() public withRequiredModules {
         _enableSessionKey(address(scw));
 

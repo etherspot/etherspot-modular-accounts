@@ -63,9 +63,11 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
     function test_constructor_success() public {
         vm.startPrank(deployer.pub);
 
-        InvoiceManager testManager = new InvoiceManager(
-            deployer.pub, credibleAccount.pub, feeReceiver.pub, feeManager.pub, whitelistedTokenAddresses
-        );
+        InvoiceManager testManager =
+            new InvoiceManager(deployer.pub, credibleAccount.pub, feeReceiver.pub, feeManager.pub);
+
+        // Add tokens to whitelist
+        testManager.addTokensToWhitelist(whitelistedTokenAddresses);
 
         // Verify roles are granted correctly
         assertTrue(testManager.hasRole(testManager.DEFAULT_ADMIN_ROLE(), deployer.pub));
@@ -92,8 +94,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
             address(0), // Invalid owner
             credibleAccount.pub,
             feeReceiver.pub,
-            feeManager.pub,
-            whitelistedTokenAddresses
+            feeManager.pub
         );
     }
 
@@ -103,8 +104,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
             deployer.pub,
             address(0), // Invalid credible account
             feeReceiver.pub,
-            feeManager.pub,
-            whitelistedTokenAddresses
+            feeManager.pub
         );
     }
 
@@ -114,8 +114,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
             deployer.pub,
             credibleAccount.pub,
             address(0), // Invalid fee receiver
-            feeManager.pub,
-            whitelistedTokenAddresses
+            feeManager.pub
         );
     }
 
@@ -125,41 +124,8 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
             deployer.pub,
             credibleAccount.pub,
             feeReceiver.pub,
-            address(0), // Invalid fee manager
-            whitelistedTokenAddresses
+            address(0) // Invalid fee manager
         );
-    }
-
-    function test_constructor_revertIf_emptyTokenWhitelist() public {
-        address[] memory emptyTokens = new address[](0);
-
-        _toRevert(InvoiceManager.IM_EmptyTokenWhitelist.selector, hex"");
-        new InvoiceManager(deployer.pub, credibleAccount.pub, feeReceiver.pub, feeManager.pub, emptyTokens);
-    }
-
-    function test_constructor_revertIf_zeroAddressInTokenWhitelist() public {
-        address[] memory tokensWithZero = new address[](2);
-        tokensWithZero[0] = address(testUSDC);
-        tokensWithZero[1] = address(0); // Invalid token address
-
-        _toRevert(InvoiceManager.IM_InvalidAddress.selector, hex"");
-        new InvoiceManager(deployer.pub, credibleAccount.pub, feeReceiver.pub, feeManager.pub, tokensWithZero);
-    }
-
-    function test_constructor_emitsTokenWhitelistedEvents() public {
-        vm.startPrank(deployer.pub);
-
-        // Expect events for each whitelisted token
-        for (uint256 i; i < whitelistedTokenAddresses.length; ++i) {
-            vm.expectEmit(true, true, false, false);
-            emit TokenWhitelisted(whitelistedTokenAddresses[i], deployer.pub);
-        }
-
-        new InvoiceManager(
-            deployer.pub, credibleAccount.pub, feeReceiver.pub, feeManager.pub, whitelistedTokenAddresses
-        );
-
-        vm.stopPrank();
     }
 
     /*//////////////////////////////////////////////////////////////

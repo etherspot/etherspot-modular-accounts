@@ -235,10 +235,6 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @param hookData The data prepared by preCheck function
     function postCheck(bytes calldata hookData) external;
 
-    /*//////////////////////////////////////////////////////////////
-                        V2 CLAIMING FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
-
     /// @notice Claims tokens from a session key and transfers them to the InvoiceManager
     /// @dev This is the main execution function that performs the actual token transfer.
     ///      It validates the session key exists, checks token availability, updates state,

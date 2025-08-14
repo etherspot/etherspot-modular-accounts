@@ -259,6 +259,7 @@ struct ResourceLock {
     address sessionKey;        // Session key address
     uint48 validAfter;        // Start timestamp
     uint48 validUntil;        // End timestamp
+    address solver;           // Solver address
     bytes32 bidHash;          // Bid hash for auction integration
     TokenData[] tokenData;    // Allowed token operations
 }

@@ -260,19 +260,15 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     }
 
     // @inheritdoc ICredibleAccountModule
-    function _validateCallStructure(address _sessionKey, PackedUserOperation calldata userOp)
-        internal
-        view
-        returns (bool)
-    {
+    function _validateCallStructure(PackedUserOperation calldata userOp) internal view returns (bool) {
         bytes calldata callData = userOp.callData;
         if (bytes4(callData[:4]) == IERC7579Account.execute.selector) {
             ModeCode mode = ModeCode.wrap(bytes32(callData[4:36]));
             (CallType calltype,,,) = ModeLib.decode(mode);
             if (calltype == CALLTYPE_SINGLE) {
-                return _validateSingleCall(callData, _sessionKey, userOp.sender);
+                return _validateSingleCall(callData);
             } else if (calltype == CALLTYPE_BATCH) {
-                return _validateBatchCall(callData, _sessionKey, userOp.sender);
+                return _validateBatchCall(callData);
             }
         }
         return false;
@@ -346,13 +342,13 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
             revert CredibleAccountModule_InvalidCaller();
         }
         if (userOp.signature.length != 65) return VALIDATION_FAILED;
+        if (!_validateCallStructure(userOp)) {
+            return VALIDATION_FAILED;
+        }
         bytes memory sig = _digestSignature(userOp.signature);
         address sessionKeySigner = ECDSA.recover(ECDSA.toEthSignedMessageHash(userOpHash), sig);
         SessionData memory sd = sessionData[msg.sender][sessionKeySigner];
         if (sd.sessionKey != sessionKeySigner) return VALIDATION_FAILED;
-        if (!_validateCallStructure(sessionKeySigner, userOp)) {
-            return VALIDATION_FAILED;
-        }
         return _packValidationData(false, sd.validUntil, sd.validAfter);
     }
 
@@ -480,71 +476,6 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         }
     }
 
-    /// @notice Validates a single call within a user operation against the session data
-    /// @dev This function decodes the call data, extracts relevant information, and performs validation checks
-    /// @param _callData The encoded call data from the user operation
-    /// @param _sessionKey The session key
-    /// @param _wallet The address of the account initiating the user operation
-    /// @return bool Returns true if the call is valid according to the session data, false otherwise
-    // function _validateSingleCall(bytes calldata _callData, address _sessionKey, address _wallet)
-    //     internal
-    //     returns (bool)
-    // {
-    //     (address target,, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[EXEC_OFFSET:]);
-    //     (bytes4 selector, address to, uint256 amount) = _digestClaimTx(execData);
-    //     if (selector == bytes4(0)) return false;
-    //     if (to != invoiceManager) return false;
-    //     return _validateTokenData(_sessionKey, _wallet, amount, target);
-    // }
-
-    /// @notice Validates a batch of calls within a user operation against the session data
-    /// @dev This function decodes multiple executions, extracts relevant information, and performs validation checks for each
-    /// @param _callData The encoded call data from the user operation containing multiple executions
-    /// @param _sessionKey The session key
-    /// @param _wallet The address of the account initiating the user operation
-    // /// @return bool Returns true if all calls in the batch are valid according to the session data, false otherwise
-    // function _validateBatchCall(bytes calldata _callData, address _sessionKey, address _wallet)
-    //     internal
-    //     returns (bool)
-    // {
-    //     Execution[] calldata execs = ExecutionLib.decodeBatch(_callData[EXEC_OFFSET:]);
-    //     for (uint256 i; i < execs.length; ++i) {
-    //         (bytes4 selector, address to, uint256 amount) = _digestClaimTx(execs[i].callData);
-    //         if (selector == bytes4(0)) return false;
-    //         if (to != invoiceManager) return false;
-    //         if (!_validateTokenData(_sessionKey, _wallet, amount, execs[i].target)) return false;
-    //     }
-    //     return true;
-    // }
-
-    /// @notice Validates if the tokenAddress in calldata of userOp is part of the session data and wallet has sufficient token balance
-    /// @dev Locked tokenBalance check is done in the CredibleAccountModule
-    /// @dev For `transfer` as function-selector, then check for the wallet balance
-    /// @dev For `transferFrom` as function-selector, then check for the wallet balance and allowance
-    /// @param _sessionKey The session key
-    /// @param _wallet The address of the account initiating the user operation
-    /// @param _amount The amount of tokens involved in the transaction
-    /// @param _token The address of the token involved in the transaction
-    /// @return bool Returns true if the token data is valid, false otherwise
-    // function _validateTokenData(address _sessionKey, address _wallet, uint256 _amount, address _token)
-    //     internal
-    //     returns (bool)
-    // {
-    //     LockedToken[] storage tokens = lockedTokens[_sessionKey];
-    //     for (uint256 i; i < tokens.length; ++i) {
-    //         if (tokens[i].token == _token) {
-    //             if (
-    //                 _walletTokenBalance(_wallet, _token) >= _amount && _amount == tokens[i].lockedAmount
-    //                     && tokens[i].claimedAmount == 0
-    //             ) {
-    //                 tokens[i].claimedAmount += _amount;
-    //                 return true;
-    //             }
-    //         }
-    //     }
-    //     return false;
-    // }
-
     /// @notice Retrieves session keys for a wallet filtered by their live or expired status
     /// @dev A key is considered live if sd.live == true AND sd.validUntil >= block.timestamp
     /// @param _wallet The wallet address to get session keys for
@@ -587,22 +518,6 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
             return false;
         }
     }
-
-    /// @notice Extracts and decodes relevant information from ERC20 function call data
-    /// @dev Supports transferFrom function of ERC20 tokens
-    /// @param _data The calldata of the ERC20 function call
-    /// @return The function selector (4 bytes)
-    /// @return The address tokens are transferred to or approved for
-    /// @return The amount of tokens involved in the transaction
-    // function _digestClaimTx(bytes calldata _data) internal pure returns (bytes4, address, uint256) {
-    //     bytes4 selector = bytes4(_data[0:4]);
-    //     if (!_isValidSelector(selector)) {
-    //         return (bytes4(0), address(0), 0);
-    //     }
-    //     address to = address(bytes20(_data[16:36]));
-    //     uint256 amount = uint256(bytes32(_data[36:68]));
-    //     return (selector, to, amount);
-    // }
 
     /// @notice Extracts signature components and proof from the provided data
     /// @dev Decodes the signature
@@ -827,80 +742,43 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
 
     /**
      * @notice Validates that a function selector is allowed for execution
-     * @dev Only allows the claim() function selector to be executed through this module
+     * @dev Only allows the claim() or IERC20.approve function selector to be executed through this module
      * @param _selector The function selector to validate
-     * @return bool True if the selector is allowed (claim function), false otherwise
+     * @return bytes4 returns a valid selector or bytes4(0)
      */
-    function _isValidSelector(bytes4 _selector) internal pure returns (bool) {
-        return _selector == this.claim.selector; // Only allow claim() calls
-    }
-
-    /**
-     * @notice Extracts and validates claim function parameters from calldata
-     * @dev Decodes calldata to extract session key, token, and amount from claim() calls.
-     *      Returns zero values if the function selector is invalid.
-     * @param _data The complete function call data including selector and parameters
-     * @return selector The function selector (bytes4(0) if invalid)
-     * @return sessionKey The session key parameter from the claim call
-     * @return amount The amount parameter from the claim call
-     */
-    function _digestClaimTx(bytes calldata _data) internal pure returns (bytes4, address, uint256) {
-        bytes4 selector = bytes4(_data[0:4]);
-        if (!_isValidSelector(selector)) {
-            return (bytes4(0), address(0), 0);
-        }
-        // For claim(address _sessionKey, address _token, uint256 _amount)
-        // Parameters: _sessionKey at offset 4-36, _token at offset 36-68, _amount at offset 68-100
-        address sessionKey = address(bytes20(_data[16:36])); // _sessionKey parameter
-        address token = address(bytes20(_data[48:68])); // _token parameter
-        uint256 amount = uint256(bytes32(_data[68:100])); // _amount parameter
-        // Return sessionKey as 'to' for validation consistency
-        return (selector, sessionKey, amount);
+    function _validateSelector(bytes4 _selector) internal pure returns (bytes4) {
+        return (_selector == this.claim.selector || _selector == IERC20.approve.selector) ? _selector : bytes4(0);
     }
 
     /**
      * @notice Validates a single execution call against session key constraints
-     * @dev Ensures the call targets this contract, uses valid selector, and matches
-     *      the expected session key. Now pure view function since validation phase
-     *      should not modify state.
+     * @dev Ensures the call targets this contract, uses valid selector
      * @param _callData The complete execution calldata including target and data
-     * @param _sessionKey The expected session key that should match the call
-     * @param _wallet The wallet address (unused but kept for interface consistency)
      * @return bool True if the single call is valid, false otherwise
      */
-    function _validateSingleCall(bytes calldata _callData, address _sessionKey, address _wallet)
-        internal
-        view // Now view since no state changes
-        returns (bool)
-    {
+    function _validateSingleCall(bytes calldata _callData) internal view returns (bool) {
         (address target,, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[EXEC_OFFSET:]);
-        (bytes4 selector, address extractedSessionKey, uint256 amount) = _digestClaimTx(execData);
+        bytes4 selector = _validateSelector(bytes4(execData[0:4]));
         if (selector == bytes4(0)) return false;
-        if (target != address(this)) return false; // Must call this contract
-        if (extractedSessionKey != _sessionKey) return false; // Session key must match
+        if (selector == IERC20.approve.selector) return true;
+        if (target != address(this)) return false; // If not approve call must call this contract
         return true;
     }
 
     /**
      * @notice Validates a batch of execution calls against session key constraints
      * @dev Iterates through all executions in the batch, ensuring each call targets
-     *      this contract, uses valid selectors, and matches the expected session key
+     *      this contract, uses valid selectors
      * @param _callData The complete batch execution calldata
-     * @param _sessionKey The expected session key that should match all calls
-     * @param _wallet The wallet address (unused but kept for interface consistency)
      * @return bool True if all batch calls are valid, false if any call fails validation
      */
-    function _validateBatchCall(bytes calldata _callData, address _sessionKey, address _wallet)
-        internal
-        view
-        returns (bool)
-    {
+    function _validateBatchCall(bytes calldata _callData) internal view returns (bool) {
         Execution[] calldata execs = ExecutionLib.decodeBatch(_callData[EXEC_OFFSET:]);
         for (uint256 i; i < execs.length; ++i) {
-            (bytes4 selector, address extractedSessionKey, uint256 amount) = _digestClaimTx(execs[i].callData);
+            bytes4 selector = _validateSelector(bytes4(execs[i].callData[0:4]));
             if (selector == bytes4(0)) return false;
-            if (execs[i].target != address(this)) return false; // Must call this contract
-            if (extractedSessionKey != _sessionKey) return false; // Session key must match
+            if (selector == IERC20.approve.selector) continue;
+            if (execs[i].target != address(this)) return false; // If not approve call must call this contract
         }
         return true;
     }

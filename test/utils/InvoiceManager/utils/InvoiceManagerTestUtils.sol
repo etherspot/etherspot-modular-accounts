@@ -130,11 +130,12 @@ contract InvoiceManagerTestUtils is ModularTestBase {
         vm.startPrank(deployer.pub);
 
         // Deploy InvoiceManager with whitelisted tokens
-        invoiceManager = new InvoiceManager(
-            deployer.pub, credibleAccount.pub, feeReceiver.pub, feeManager.pub, whitelistedTokenAddresses
-        );
+        invoiceManager = new InvoiceManager(deployer.pub, credibleAccount.pub, feeReceiver.pub, feeManager.pub);
 
         vm.label(address(invoiceManager), "InvoiceManager");
+
+        // Add whitelisted tokens
+        invoiceManager.addTokensToWhitelist(whitelistedTokenAddresses);
 
         // Grant additional roles
         invoiceManager.grantSettlerRole(settler.pub);

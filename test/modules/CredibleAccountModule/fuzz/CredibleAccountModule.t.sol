@@ -7,6 +7,7 @@ import {ECDSA} from "solady/src/utils/ECDSA.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 import "ERC4337/core/Helpers.sol";
+import "ERC7579/interfaces/IERC7579Module.sol";
 import "ERC7579/interfaces/IERC7579Account.sol";
 import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
 import "ERC7579/libs/ModeLib.sol";
@@ -248,5 +249,152 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         for (uint256 i; i < 3; ++i) {
             assertEq(lockedTokens[i].claimedAmount, _claimAmounts[i]);
         }
+    }
+
+    function testFuzz_validateUserOp_passesWithApproveSelector(
+        address tokenAddress,
+        address spender,
+        uint256 approveAmount
+    ) public withRequiredModules {
+        vm.assume(tokenAddress != address(0));
+        vm.assume(spender != address(0));
+        vm.assume(approveAmount > 0);
+
+        _enableSessionKey(address(scw));
+
+        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, spender, approveAmount);
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(tokenAddress, 0, approveData))
+        );
+        (PackedUserOperation memory op, bytes32 hash) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
+
+        uint256 result = cam.validateUserOp(op, hash);
+        assertTrue(result != VALIDATION_FAILED, "Validation should pass with approve selector for any token");
+    }
+
+    function testFuzz_validateUserOp_passesWithMixedBatch(uint256 approveAmount, uint256 claimAmount)
+        public
+        withRequiredModules
+    {
+        vm.assume(approveAmount > 0 && approveAmount < 1000 ether);
+        vm.assume(claimAmount > 0 && claimAmount < 1000 ether);
+
+        _enableSessionKey(address(scw));
+
+        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(im), approveAmount);
+        bytes memory claimData = _createClaimExecution(sessionKey.pub, address(usdc), claimAmount);
+
+        Execution[] memory batch = new Execution[](2);
+        batch[0] = Execution({target: address(usdc), value: 0, callData: approveData});
+        batch[1] = Execution({target: address(cam), value: 0, callData: claimData});
+
+        bytes memory opCalldata =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
+        (PackedUserOperation memory op, bytes32 hash) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
+
+        uint256 result = cam.validateUserOp(op, hash);
+        assertTrue(result != VALIDATION_FAILED, "Validation should pass with mixed approve/claim batch");
+    }
+
+    function testFuzz_validateUserOp_passesWithMultipleApprovesInBatch() public withRequiredModules {
+        _enableSessionKey(address(scw));
+
+        bytes memory approveUsdc = abi.encodeWithSelector(IERC20.approve.selector, address(im), amounts[0]);
+        bytes memory approveDai = abi.encodeWithSelector(IERC20.approve.selector, address(im), amounts[1]);
+
+        Execution[] memory batch = new Execution[](2);
+        batch[0] = Execution({target: address(usdc), value: 0, callData: approveUsdc});
+        batch[1] = Execution({target: address(dai), value: 0, callData: approveDai});
+
+        bytes memory opCalldata =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
+        (PackedUserOperation memory op, bytes32 hash) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
+
+        uint256 result = cam.validateUserOp(op, hash);
+        assertTrue(result != VALIDATION_FAILED, "Validation should pass with multiple approve calls");
+    }
+
+    function testFuzz_validateUserOp_passesWithZeroAmountApprove() public withRequiredModules {
+        _enableSessionKey(address(scw));
+
+        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(im), 0);
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(usdc), 0, approveData))
+        );
+        (PackedUserOperation memory op, bytes32 hash) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
+
+        uint256 result = cam.validateUserOp(op, hash);
+        assertTrue(result != VALIDATION_FAILED, "Validation should pass with zero amount approve");
+    }
+
+    function testFuzz_validateUserOp_failsWithReplayedSignature() public withRequiredModules {
+        _enableSessionKey(address(scw));
+
+        bytes memory claimData = _createClaimExecution(sessionKey.pub, address(usdc), amounts[0]);
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, claimData))
+        );
+        (PackedUserOperation memory op, bytes32 hash) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
+
+        // First validation should pass
+        uint256 result1 = cam.validateUserOp(op, hash);
+        assertTrue(result1 != VALIDATION_FAILED);
+
+        // Replay same userOp with different hash should fail
+        uint256 result2 = cam.validateUserOp(op, keccak256("different_hash"));
+        assertEq(result2, VALIDATION_FAILED, "Should fail signature validation on replay");
+    }
+
+    function testFuzz_validateUserOp_failsWithInvalidSignatureLength(uint256 sigLength) public withRequiredModules {
+        vm.assume(sigLength != 65 && sigLength < 200); // Avoid extremely large values
+
+        _enableSessionKey(address(scw));
+
+        bytes memory claimData = _createClaimExecution(sessionKey.pub, address(usdc), amounts[0]);
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, claimData))
+        );
+
+        PackedUserOperation memory op = PackedUserOperation({
+            sender: address(scw),
+            nonce: 0,
+            initCode: "",
+            callData: opCalldata,
+            accountGasLimits: bytes32(uint256(2000000) << 128 | uint256(2000000)),
+            preVerificationGas: 100000,
+            gasFees: bytes32(uint256(1000000000) << 128 | uint256(1000000000)),
+            paymasterAndData: "",
+            signature: new bytes(sigLength) // Invalid length
+        });
+
+        uint256 result = cam.validateUserOp(op, keccak256("test"));
+        assertEq(result, VALIDATION_FAILED, "Should fail with invalid signature length");
+    }
+
+    function testFuzz_validateUserOp_failsWithUnauthorizedSessionKey() public withRequiredModules {
+        _enableSessionKey(address(scw));
+
+        // Create different session key that wasn't enabled
+        User memory unauthorizedKey = _createUser("unauthorized");
+
+        bytes memory claimData = _createClaimExecution(unauthorizedKey.pub, address(usdc), amounts[0]);
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, claimData))
+        );
+        (PackedUserOperation memory op, bytes32 hash) =
+            _createUserOpWithSignature(unauthorizedKey, address(scw), address(cam), opCalldata);
+
+        uint256 result = cam.validateUserOp(op, hash);
+        assertEq(result, VALIDATION_FAILED, "Should fail with unauthorized session key");
     }
 }

@@ -112,24 +112,14 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
      * @param _credibleAccountModule Address that will receive CREDIBLE_ACCOUNT_ROLE
      * @param _feeReceiver Address that will receive collected fees
      * @param _feeManager Address that will receive FEE_MANAGER_ROLE
-     * @param _whitelistedTokens Array of token addresses to whitelist at deployment
-     * @dev Reverts if any address is zero or if no tokens are provided for whitelist
+     * @dev Reverts if any address is zero
      */
-    constructor(
-        address _owner,
-        address _credibleAccountModule,
-        address _feeReceiver,
-        address _feeManager,
-        address[] memory _whitelistedTokens
-    ) {
+    constructor(address _owner, address _credibleAccountModule, address _feeReceiver, address _feeManager) {
         if (
             _owner == address(0) || _credibleAccountModule == address(0) || _feeReceiver == address(0)
                 || _feeManager == address(0)
         ) {
             revert IM_InvalidAddress();
-        }
-        if (_whitelistedTokens.length == 0) {
-            revert IM_EmptyTokenWhitelist();
         }
         _grantRole(DEFAULT_ADMIN_ROLE, _owner);
         _grantRole(CREDIBLE_ACCOUNT_ROLE, _credibleAccountModule);
@@ -137,13 +127,6 @@ contract InvoiceManager is IInvoiceManager, AccessControlEnumerable, ReentrancyG
         _grantRole(FEE_MANAGER_ROLE, _feeManager);
         _grantRole(SOLVER_MANAGER_ROLE, _owner);
         feeReceiver = _feeReceiver;
-        for (uint256 i; i < _whitelistedTokens.length; ++i) {
-            if (_whitelistedTokens[i] == address(0)) {
-                revert IM_InvalidAddress();
-            }
-            whitelistedTokens.add(_whitelistedTokens[i]);
-            emit TokenWhitelisted(_whitelistedTokens[i], _owner);
-        }
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -169,7 +169,7 @@ contract ModularTestBase is BootstrapUtil, Test {
         whitelistedTokens[0] = address(usdc);
         whitelistedTokens[1] = address(usdt);
         whitelistedTokens[2] = address(dai);
-        im = new InvoiceManager(deployer.pub, address(cam), deployer.pub, deployer.pub, whitelistedTokens);
+        im = new InvoiceManager(deployer.pub, address(cam), deployer.pub, deployer.pub);
         vm.label({account: address(impl), newLabel: "ModularEtherspotWallet"});
         vm.label({account: address(factory), newLabel: "ModularEtherspotWalletFactory"});
         vm.label({account: address(moecdsav), newLabel: "MultipleOwnerECDSAValidator"});
@@ -180,9 +180,10 @@ contract ModularTestBase is BootstrapUtil, Test {
         vm.label({account: address(cam), newLabel: "CredibleAccountModule"});
         vm.label({account: address(rlv), newLabel: "ResourceLockValidator"});
         vm.label({account: address(im), newLabel: "InvoiceManager"});
-        // Setup CAM and RLV
+        // Setup CAM, RLV and IM
         cam.configure(address(rlv), address(im));
         rlv.setCredibleAccountModule(address(cam));
+        im.addTokensToWhitelist(whitelistedTokens);
         // Users
         alice = _createUser("Alice");
         bob = _createUser("Bob");
