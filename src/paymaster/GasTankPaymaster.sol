@@ -460,8 +460,19 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         override
     {
         (address userOpSender, uint256 preChargeNative) = abi.decode(context, (address, uint256));
-        // Top up EntryPoint if required
-        _topUpEntryPointDeposit(updateCachedPrice(false));
+        uint256 priceForTopUp;
+        // Try to get fresh price
+        try this.updateCachedPrice(false) returns (uint256 freshPrice) {
+            if (freshPrice > 0) {
+                priceForTopUp = freshPrice;
+            } else {
+                priceForTopUp = paymasterConfig.cachedTokenPrice;
+            }
+        } catch {
+            priceForTopUp = paymasterConfig.cachedTokenPrice;
+        }
+                // Top up EntryPoint if required
+        _topUpEntryPointDeposit(priceForTopUp);
         bool opReverted = mode == PostOpMode.opReverted;
         // Calculate total gas cost in native currency (wei)
         uint256 totalGasCostWei = actualGasCost + (paymasterConfig.postOpCost * actualUserOpFeePerGas);

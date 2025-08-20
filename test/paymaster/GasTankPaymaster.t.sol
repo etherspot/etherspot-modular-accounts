@@ -1162,4 +1162,174 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         (bool success,) = address(gasTankUSDC).call{value: amount}("");
         assertTrue(success);
     }
+
+ /*//////////////////////////////////////////////////////////////
+                   TEST POSTOP ORACLE FALLBACK LOGIC
+  //////////////////////////////////////////////////////////////*/
+
+  function test_postOp_oracleUpdateSuccess_usesFreshPrice() public {
+      // Setup: Deposit tokens for fee receiver and set initial oracle prices
+      _depositToGasTank(gasTankUSDC, address(usdc), feeReceiver, 20 * 10 ** 6);
+      
+      vm.startPrank(deployer);
+      usdcOracle.configurePrice(1e8);
+      nativeOracle.configurePrice(2000e8);
+      gasTankUSDC.updateCachedPrice(true);
+
+      // Reduce EntryPoint balance to trigger top-up
+      uint256 initialBalance = gasTankUSDC.getDeposit();
+      gasTankUSDC.withdrawTo(beneficiary, initialBalance - 0.2 ether);
+
+      vm.warp(block.timestamp + 1 days);
+
+      // Update oracle prices to new values that should be used
+      usdcOracle.configurePrice(12e7); // $1.20
+      nativeOracle.configurePrice(2200e8); // $2200 ETH
+      vm.stopPrank();
+
+      PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+          gasTankUSDC,
+          address(mew),
+          owner1Key,
+          _getBasicCalldata(),
+          2 gwei,
+          1 gwei,
+          verifyingSignerKey,
+          uint48(block.timestamp + 1 hours),
+          uint48(block.timestamp)
+      );
+
+      _executeUserOp(userOp);
+
+      // Verify fee receiver balance was used for top-up (should be 0 after successful swap)
+      uint256 finalFrBalance = gasTankUSDC.gasTankBalance(feeReceiver);
+      assertEq(finalFrBalance, 0);
+  }
+
+  function test_postOp_oracleUpdateFails_usesCachedPrice() public {
+      // Setup: Deposit tokens and establish cached price FIRST
+      _depositToGasTank(gasTankUSDC, address(usdc), feeReceiver, 20 * 10 ** 6);
+      
+      vm.startPrank(deployer);
+      usdcOracle.configurePrice(1e8);
+      nativeOracle.configurePrice(2000e8);
+      uint256 cachedPrice = gasTankUSDC.updateCachedPrice(true); // This sets cached price
+      assertGt(cachedPrice, 0, "Should have cached price set");
+
+      // Reduce EntryPoint balance to trigger top-up
+      uint256 initialBalance = gasTankUSDC.getDeposit();
+      gasTankUSDC.withdrawTo(beneficiary, initialBalance - 0.2 ether);
+
+      // Move time forward to ensure cache is considered stale (force oracle call)
+      vm.warp(block.timestamp + 2 hours); // Beyond priceMaxAge of 1 hour
+
+      // Make oracle fail by setting it to revert AFTER establishing cache
+      usdcOracle.configureShouldRevert(true);
+      vm.stopPrank();
+
+      PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+          gasTankUSDC,
+          address(mew),
+          owner1Key,
+          _getBasicCalldata(),
+          2 gwei,
+          1 gwei,
+          verifyingSignerKey,
+          uint48(block.timestamp + 1 hours),
+          uint48(block.timestamp)
+      );
+
+      _executeUserOp(userOp);
+
+      // Verify cached price was used (fee receiver balance should be 0 after top-up)
+      uint256 finalFrBalance = gasTankUSDC.gasTankBalance(feeReceiver);
+      assertEq(finalFrBalance, 0);
+  }
+
+  
+  function test_postOp_oracleStalePrice_usesCachedPrice() public {
+      // Setup: Deposit tokens and establish cached price
+      _depositToGasTank(gasTankUSDC, address(usdc), feeReceiver, 20 * 10 ** 6);
+      
+      vm.startPrank(deployer);
+      usdcOracle.configurePrice(1e8);
+      nativeOracle.configurePrice(2000e8);
+      gasTankUSDC.updateCachedPrice(true);
+
+      // Reduce EntryPoint balance to trigger top-up
+      uint256 initialBalance = gasTankUSDC.getDeposit();
+      gasTankUSDC.withdrawTo(beneficiary, initialBalance - 0.2 ether);
+
+      // Advance time beyond priceMaxAge (1 hour) to make prices stale
+      vm.warp(block.timestamp + 2 hours);
+      
+      // Set new oracle prices (these should be ignored due to staleness)
+      usdcOracle.configurePrice(15e7); // $1.50
+      nativeOracle.configurePrice(2500e8); // $2500 ETH
+      // IMPORTANT: Set updatedAt AFTER configurePrice to make them stale
+      usdcOracle.configureUpdatedAt(1); // Make stale
+      nativeOracle.configureUpdatedAt(1); // Make stale
+      vm.stopPrank();
+
+      PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+          gasTankUSDC,
+          address(mew),
+          owner1Key,
+          _getBasicCalldata(),
+          2 gwei,
+          1 gwei,
+          verifyingSignerKey,
+          uint48(block.timestamp + 1 hours),
+          uint48(block.timestamp)
+      );
+
+      _executeUserOp(userOp);
+
+      // Verify cached price was used for top-up
+      uint256 finalFrBalance = gasTankUSDC.gasTankBalance(feeReceiver);
+      assertEq(finalFrBalance, 0);
+  }
+
+  function test_postOp_noCachedPrice_skipTopUp() public {
+      // Setup: Deposit tokens but don't set cached price
+      _depositToGasTank(gasTankUSDC, address(usdc), feeReceiver, 20 * 10 ** 6);
+      
+      // Configure paymaster with no cached price
+      GasTankPaymaster.GasTankPaymasterConfig memory config = gasTankUSDC.getPaymasterConfig();
+      config.cachedTokenPrice = 0; // No cached price
+      vm.startPrank(deployer);
+      gasTankUSDC.configurePaymaster(config);
+
+      // Reduce EntryPoint balance to trigger top-up attempt
+      uint256 initialBalance = gasTankUSDC.getDeposit();
+      gasTankUSDC.withdrawTo(beneficiary, initialBalance - 0.2 ether);
+
+      // Make oracle fail and no cached price available
+      usdcOracle.configurePrice(0); // Invalid price
+      nativeOracle.configurePrice(2000e8);
+      vm.stopPrank();
+
+      PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+          gasTankUSDC,
+          address(mew),
+          owner1Key,
+          _getBasicCalldata(),
+          2 gwei,
+          1 gwei,
+          verifyingSignerKey,
+          uint48(block.timestamp + 1 hours),
+          uint48(block.timestamp)
+      );
+
+      // Should emit event indicating top-up was skipped due to no reliable price
+      vm.expectEmit(true, true, true, true);
+      emit GasTankPaymaster_TopUpSkippedDueToStalePrice();
+      _executeUserOp(userOp);
+
+      // Verify fee receiver balance unchanged (no top-up occurred)
+      uint256 finalFrBalance = gasTankUSDC.gasTankBalance(feeReceiver);
+      assertEq(finalFrBalance, 20 * 10 ** 6);
+  }
+
+    
 }
