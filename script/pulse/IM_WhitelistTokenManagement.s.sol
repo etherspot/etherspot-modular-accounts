@@ -7,7 +7,10 @@ import {InvoiceManager} from "../../src/utils/InvoiceManager.sol";
 import {
     EXPECTED_INVOICE_MANAGER_ADDRESS,
     TEST_USDC_BASE_SEPOLIA,
-    TEST_USDT_BASE_SEPOLIA
+    TEST_USDT_BASE_SEPOLIA,
+    TEST_DAI_SEPOLIA,
+    TEST_USDC_SEPOLIA,
+    TEST_USDT_SEPOLIA
 } from "./utils/PulseConstants.sol";
 
 contract IM_WhitelistTokenManagement is Script {
@@ -15,14 +18,11 @@ contract IM_WhitelistTokenManagement is Script {
 
     // Tokens to add to whitelist
     // Leave empty to skip
-    address[] public tokensToAdd;
+    address[] public tokensToAdd = [TEST_DAI_SEPOLIA];
 
     // Tokens to remove from whitelist
     // Leave empty to skip
-    address[] public tokensToRemove = [
-        TEST_USDC_BASE_SEPOLIA, // Old token to remove
-        TEST_USDT_BASE_SEPOLIA
-    ];
+    address[] public tokensToRemove;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");

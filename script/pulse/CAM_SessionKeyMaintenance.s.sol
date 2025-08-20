@@ -4,7 +4,7 @@ pragma solidity ^0.8.23;
 import "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {CredibleAccountModule} from "../../src/modules/validators/CredibleAccountModule.sol";
-import {EXPECTED_CREDIBLE_ACCOUNT_MODULE_ADDRESS} from "./utils/ScriptConstants.sol";
+import {EXPECTED_CREDIBLE_ACCOUNT_MODULE_ADDRESS} from "./utils/PulseConstants.sol";
 
 contract CAM_SessionKeyMaintenance is Script {
     CredibleAccountModule public credibleAccountModule;

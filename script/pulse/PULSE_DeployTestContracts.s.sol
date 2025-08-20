@@ -138,7 +138,7 @@ contract PULSE_DeployTestContracts is Script {
         if (sessionKeyDisablers.length > 0) {
             for (uint256 i; i < sessionKeyDisablers.length; ++i) {
                 console2.log("Granting SESSION_KEY_DISABLER_ROLE to", sessionKeyDisablers[i]);
-                credibleAccountModule.grantSessionKeyDisablerRole(sessionKeyDisabler);
+                credibleAccountModule.grantSessionKeyDisablerRole(sessionKeyDisablers[i]);
             }
             address[] memory disablerRole = credibleAccountModule.getSessionKeyDisablers();
             console2.log("Addresses with SESSION_KEY_DISABLER_ROLE:", disablerRole.length);

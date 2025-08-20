@@ -475,7 +475,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         uint256 initialFeeReceiverBalance = testUSDC.balanceOf(feeReceiver.pub);
         uint256 initialSolverBalance = testUSDC.balanceOf(solver.pub);
 
-        // When pulseFee = 0, contract calculates default fee (25 cents)
+        // When pulseFee = 0, contract calculates default fee (5 cents)
         uint256 expectedUSDCFee = _calculateExpectedFeeForToken(address(testUSDC), 0);
         uint256 expectedUSDTFee = _calculateExpectedFeeForToken(address(testUSDT), 0);
         uint256 expectedDAIFee = _calculateExpectedFeeForToken(address(testDAI), 0);

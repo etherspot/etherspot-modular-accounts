@@ -11,11 +11,11 @@ contract IM_RoleManagement is Script {
 
     // Leave array empty if not required
     // Addresses to grant roles to
-    address[] public newSettlers = [];
-    address[] public newFeeManagers = [];
-    address[] public newSolverManagers = [];
+    address[] public newSettlers;
+    address[] public newFeeManagers;
+    address[] public newSolverManagers;
     // Addresses to revoke roles from
-    address[] public settlersToRevoke = [];
+    address[] public settlersToRevoke;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");

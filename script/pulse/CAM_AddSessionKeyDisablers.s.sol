@@ -8,10 +8,10 @@ import {DEPLOYER, EXPECTED_CREDIBLE_ACCOUNT_MODULE_ADDRESS} from "./utils/PulseC
 
 contract CAM_AddSessionKeyDisablers is Script {
     // Add addresses here for those you want to grant SESSION_KEY_DISABLER_ROLE to:
-    address[] public sessionKeyDisablers = [0x7021E9F891972dd9237893e764d505bC7f58d0B9];
+    address[] public sessionKeyDisablers;
 
     function run() external {
-        CredibleAccountModule credibleAccountModule = CredibleAccountModule(DEPLOYED_CREDIBLE_ACCOUNT_MODULE_ADDRESS);
+        CredibleAccountModule credibleAccountModule = CredibleAccountModule(EXPECTED_CREDIBLE_ACCOUNT_MODULE_ADDRESS);
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
 
@@ -21,7 +21,7 @@ contract CAM_AddSessionKeyDisablers is Script {
 
         for (uint256 i; i < sessionKeyDisablers.length; ++i) {
             console2.log("Granting SESSION_KEY_DISABLER_ROLE to", sessionKeyDisablers[i]);
-            credibleAccountModule.grantSessionKeyDisablerRole(sessionKeyDisabler);
+            credibleAccountModule.grantSessionKeyDisablerRole(sessionKeyDisablers[i]);
         }
         address[] memory disablerRole = credibleAccountModule.getSessionKeyDisablers();
         console2.log("Addresses with SESSION_KEY_DISABLER_ROLE:", disablerRole.length);

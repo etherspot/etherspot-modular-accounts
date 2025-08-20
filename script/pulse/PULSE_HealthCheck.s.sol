@@ -28,7 +28,7 @@ contract PULSE_HealthCheck is Script {
 
     // Test solvers to check
     address[] public testSolvers =
-        [0x3333333333333333333333333333333333333333, 0x4444444444444444444444444444444444444444];
+        [0x3333333333333333333333333333333333333333, 0x7C84F10502FcDea2E403b70feA96a4aE990a34DF];
 
     function run() external {
         hookMultiPlexer = HookMultiPlexer(EXPECTED_HOOK_MULTIPLEXER_ADDRESS);

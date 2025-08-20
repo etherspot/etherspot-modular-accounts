@@ -6,6 +6,8 @@ import {console2} from "forge-std/console2.sol";
 import {InvoiceManager} from "../../src/utils/InvoiceManager.sol";
 import {
     DEPLOYER,
+    EXPECTED_CREDIBLE_ACCOUNT_MODULE_ADDRESS,
+    EXPECTED_INVOICE_MANAGER_ADDRESS,
     PULSE_SALT,
     PULSE_TEST_SALT,
     TEST_USDC_BASE_SEPOLIA,

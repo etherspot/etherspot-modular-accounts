@@ -5,6 +5,7 @@ import "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {ResourceLockValidator} from "../../src/modules/validators/ResourceLockValidator.sol";
 import {
+    DEPLOYER,
     EXPECTED_CREDIBLE_ACCOUNT_MODULE_ADDRESS,
     EXPECTED_RESOURCE_LOCK_VALIDATOR_ADDRESS,
     PULSE_SALT,
