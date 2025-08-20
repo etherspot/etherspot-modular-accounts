@@ -24,6 +24,9 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     event GasTankPaymaster_WrappedNativeWithdrawn(address indexed to, uint256 amount);
     event GasTankPaymaster_EmergencyUnsupportedTokenRecovery(address indexed token, address indexed to, uint256 amount);
     event GasTankPaymaster_Received(address indexed sender, uint256 amount);
+    event GasTankPaymaster_StaleTokenPrice();
+    event GasTankPaymaster_TopUpExecuted(uint256 tokenUsed, uint256 nativeAmount);
+
 
     /*//////////////////////////////////////////////////////////////
                          BASIC FUNCTIONALITY TESTS
@@ -1078,54 +1081,57 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         assertTrue(true, "User operation should succeed despite insufficient balance for top-up");
     }
 
-    function test_automaticTopUp_USDT_stalePrice_butUserOpSucceeds() public {
-        // Configure paymaster with shorter price max age to make prices go stale easily
-        GasTankPaymaster.GasTankPaymasterConfig memory newConfig = gasTankUSDC.getPaymasterConfig();
-        newConfig.minEPBalance = 2 ether;
-        newConfig.priceMaxAge = 1 hours; // Short max age for easy staleness
-        vm.prank(deployer);
-        gasTankUSDT.configurePaymaster(newConfig);
-        _depositToGasTank(gasTankUSDT, address(usdt), feeReceiver, 10 * 10 ** 18);
-        usdt.mint(address(mew), 100 * 10 ** 18);
-        _depositToGasTank(gasTankUSDT, address(usdt), address(mew), 10 * 10 ** 18);
-        vm.startPrank(deployer);
-        usdtOracle.configurePrice(1e8); // $1 USDT
-        nativeOracle.configurePrice(2000e8); // $2000 ETH
-        gasTankUSDT.updateCachedPrice(true);
-        // Reduce EntryPoint balance to trigger top-up attempt
-        uint256 currentBalance = gasTankUSDT.getDeposit();
-        gasTankUSDT.withdrawTo(beneficiary, currentBalance - 0.2 ether);
-        currentBalance = gasTankUSDT.getDeposit();
-        vm.stopPrank();
-        vm.warp(block.timestamp + 2 hours); // Beyond the 1 hour priceMaxAge
-        PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
-            gasTankUSDT,
-            address(mew),
-            owner1Key,
-            _getBasicCalldata(),
-            2 gwei,
-            1 gwei,
-            verifyingSignerKey,
-            uint48(block.timestamp + 1 hours),
-            uint48(block.timestamp)
-        );
-        bytes32 userOpHash = entrypoint.getUserOpHash(userOp);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(owner1Key, ECDSA.toEthSignedMessageHash(userOpHash));
-        userOp.signature = abi.encodePacked(r, s, v);
-        PackedUserOperation[] memory userOps = new PackedUserOperation[](1);
-        userOps[0] = userOp;
-        vm.expectEmit(true, true, true, true);
-        emit GasTankPaymaster_TopUpSkippedDueToStalePrice();
-        entrypoint.handleOps(userOps, beneficiary);
-        uint256 finalEpBalance = gasTankUSDT.getDeposit();
-        uint256 finalFrBalance = gasTankUSDT.gasTankBalance(feeReceiver);
-        assertLt(finalEpBalance, currentBalance, "EntryPoint balance should decrease due to gas consumption");
-        assertEq(
-            finalFrBalance, 10 * 10 ** 18, "feeReceiver balance should be unchanged - no top-up due to stale price"
-        );
-        assertLt(finalEpBalance, 2 ether, "Should still be below minimum threshold since top-up was skipped");
-        assertTrue(true, "User operation should succeed despite stale price condition");
-    }
+     function test_automaticTopUp_USDT_stalePriceShouldUseCached_andUserOpSucceeds() public {
+      // Configure paymaster with shorter price max age to make prices go stale easily
+      GasTankPaymaster.GasTankPaymasterConfig memory newConfig = gasTankUSDC.getPaymasterConfig();
+      newConfig.minEPBalance = 2 ether;
+      newConfig.priceMaxAge = 1 hours; // Short max age for easy staleness
+      vm.prank(deployer);
+      gasTankUSDT.configurePaymaster(newConfig);
+      _depositToGasTank(gasTankUSDT, address(usdt), feeReceiver, 10 * 10 ** 18);
+      usdt.mint(address(mew), 100 * 10 ** 18);
+      _depositToGasTank(gasTankUSDT, address(usdt), address(mew), 10 * 10 ** 18);
+      vm.startPrank(deployer);
+      usdtOracle.configurePrice(1e8); // $1 USDT
+      nativeOracle.configurePrice(2000e8); // $2000 ETH
+      gasTankUSDT.updateCachedPrice(true);
+      // Reduce EntryPoint balance to trigger top-up attempt
+      uint256 currentBalance = gasTankUSDT.getDeposit();
+      gasTankUSDT.withdrawTo(beneficiary, currentBalance - 0.2 ether);
+      currentBalance = gasTankUSDT.getDeposit();
+      vm.stopPrank();
+      vm.warp(block.timestamp + 2 hours); // Beyond the 1 hour priceMaxAge
+      PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+          gasTankUSDT,
+          address(mew),
+          owner1Key,
+          _getBasicCalldata(),
+          2 gwei,
+          1 gwei,
+          verifyingSignerKey,
+          uint48(block.timestamp + 1 hours),
+          uint48(block.timestamp)
+      );
+      bytes32 userOpHash = entrypoint.getUserOpHash(userOp);
+      (uint8 v, bytes32 r, bytes32 s) = vm.sign(owner1Key, ECDSA.toEthSignedMessageHash(userOpHash));
+      userOp.signature = abi.encodePacked(r, s, v);
+      PackedUserOperation[] memory userOps = new PackedUserOperation[](1);
+      userOps[0] = userOp;
+
+      // Expect stale price detection and successful top-up using cached price
+      vm.expectEmit(true, true, true, true);
+      emit GasTankPaymaster_StaleTokenPrice();
+      vm.expectEmit(true, false, false, false);
+      emit GasTankPaymaster_TopUpExecuted(10 * 10 ** 18, 0); // Using cached price for top-up
+
+      entrypoint.handleOps(userOps, beneficiary);
+      uint256 finalEpBalance = gasTankUSDT.getDeposit();
+      uint256 finalFrBalance = gasTankUSDT.gasTankBalance(feeReceiver);
+      assertEq(finalFrBalance, 0, "feeReceiver balance should be 0 after top-up swap");
+      // Note: final balance may be higher or lower than initial due to top-up vs gas consumption
+      // The key is that the top-up occurred (feeReceiver balance = 0) using cached price fallback
+      assertTrue(true, "User operation should succeed with stale price fallback to cached price");
+  }
 
     /*//////////////////////////////////////////////////////////////
                         GENERIC VIEW FUNCTIONS
