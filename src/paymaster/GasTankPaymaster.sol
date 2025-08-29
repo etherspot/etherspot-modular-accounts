@@ -295,6 +295,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     function setSwapRouter(ISwapRouter _swapRouter) external onlyOwner {
         if (address(_swapRouter) == address(0)) revert GasTankPaymaster_InvalidAddress();
         uniswap = _swapRouter;
+        token.approve(address(uniswap), type(uint256).max);
         emit GasTankPaymaster_SwapRouterUpdated(address(_swapRouter));
     }
 
@@ -471,7 +472,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         } catch {
             priceForTopUp = paymasterConfig.cachedTokenPrice;
         }
-                // Top up EntryPoint if required
+        // Top up EntryPoint if required
         _topUpEntryPointDeposit(priceForTopUp);
         bool opReverted = mode == PostOpMode.opReverted;
         // Calculate total gas cost in native currency (wei)

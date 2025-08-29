@@ -30,17 +30,17 @@ contract GasTankPaymasterScript is Script {
     address public constant DEPLOYER = 0x09FD4F6088f2025427AB1e89257A44747081Ed59;
     address payable public constant VERIFYING_SIGNER = payable(0x09FD4F6088f2025427AB1e89257A44747081Ed59);
     address payable public constant FEE_RECEIVER = payable(0x09FD4F6088f2025427AB1e89257A44747081Ed59);
-    address public constant SWAP_ROUTER_ADDRESS = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // Polygon - Uniswap SwapRouter02
-    address public constant TOKEN_ADDRESS = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359; // Polygon - USDC
-    address public constant WRAPPED_NATIVE_TOKEN_ADDRESS = 0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270; // Polygon - wPOL
-    address public constant TOKEN_ORACLE = 0xfE4A8cc5b5B2366C1B58Bea3858e81843581b2F7; // Polygon - USDC/USD (Chainlink)
-    address public constant NATIVE_TOKEN_ORACLE = 0xAB594600376Ec9fD91F8e885dADF0CE036862dE0; // Polygon - MATIC/USD (Chainlink)
+    address public constant SWAP_ROUTER_ADDRESS = 0xE592427A0AEce92De3Edee1F18E0157C05861564; // Arbitrum - Uniswap SwapRouter
+    address public constant TOKEN_ADDRESS = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831; // Arbitrum - USDC
+    address public constant WRAPPED_NATIVE_TOKEN_ADDRESS = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1; // Arbitrum - WETH
+    address public constant TOKEN_ORACLE = 0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3; // Arbitrum - USDC/USD (Chainlink)
+    address public constant NATIVE_TOKEN_ORACLE = 0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612; // Arbitrum - WETH/USD (Chainlink)
     // PaymasterConfig settings
     uint256 public constant PRICE_MARKUP = 1e26 * 12 / 10; // 1.2x markup
     uint128 public constant MINIMUM_ENTRYPOINT_BALANCE = 0.0005 ether;
     uint48 public constant POST_OP_COST = 35000;
-    uint48 public constant PRICE_MAX_AGE = 2 minutes;
-    uint256 public constant MINIMUM_FEE_RECEIVER_TOKEN_BALANCE_FOR_TOPUP = 10;
+    uint48 public constant PRICE_MAX_AGE = 24 hours + 1 minutes;
+    uint256 public constant MINIMUM_FEE_RECEIVER_TOKEN_BALANCE_FOR_TOPUP = 1; // adjusted for testing
     // UniswapHelperConfig settings
     uint256 public constant MINIMUM_SWAP_AMOUNT = 0.0001 ether;
     uint24 public constant UNISWAP_POOL_FEE = 3000; // 0.3%
