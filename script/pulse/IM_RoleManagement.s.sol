@@ -11,7 +11,7 @@ contract IM_RoleManagement is Script {
 
     // Leave array empty if not required
     // Addresses to grant roles to
-    address[] public newSettlers;
+    address[] public newSettlers = [0xbc4aECba01E015fb88527AF0c65B37C874b2b1fE];
     address[] public newFeeManagers;
     address[] public newSolverManagers;
     // Addresses to revoke roles from

@@ -8,21 +8,43 @@ import {CredibleAccountModule} from "../../src/modules/validators/CredibleAccoun
 import {ResourceLockValidator} from "../../src/modules/validators/ResourceLockValidator.sol";
 import {InvoiceManager} from "../../src/utils/InvoiceManager.sol";
 import {
+    DAI_ARBITRUM,
+    DAI_BASE,
+    DAI_BSC,
+    DAI_ETHEREUM,
+    DAI_OPTIMISM,
+    DAI_POLYGON,
     DEPLOYER,
     PULSE_TEST_SALT,
     TESTING_CREDIBLE_ACCOUNT_MODULE_ADDRESS,
     TESTING_HOOK_MULTIPLEXER_ADDRESS,
     TESTING_INVOICE_MANAGER_ADDRESS,
     TESTING_RESOURCE_LOCK_VALIDATOR_ADDRESS,
-    TEST_USDC_BASE_SEPOLIA,
-    TEST_USDT_BASE_SEPOLIA,
-    TEST_USDC_SEPOLIA,
-    TEST_USDT_SEPOLIA
+    USDC_ARBITRUM,
+    USDC_BASE,
+    USDC_BSC,
+    USDC_ETHEREUM,
+    USDC_GNOSIS,
+    USDC_OPTIMISM,
+    USDC_POLYGON,
+    USDCE_ARBITRUM,
+    USDCE_BSC,
+    USDCE_GNOSIS,
+    USDCE_OPTIMISM,
+    USDCE_POLYGON,
+    USDT_ARBITRUM,
+    USDT_BSC,
+    USDT_ETHEREUM,
+    USDT_ETHEREUM,
+    USDT_GNOSIS,
+    USDT_OPTIMISM,
+    USDT_POLYGON
 } from "./utils/PulseConstants.sol";
 
 contract PULSE_DeployTestContracts is Script {
-    address[] public INVOICE_MANAGER_WHITELISTED_TOKENS = [TEST_USDC_BASE_SEPOLIA, TEST_USDT_BASE_SEPOLIA];
-    address[] public sessionKeyDisablers = [0x7021E9F891972dd9237893e764d505bC7f58d0B9];
+    address[] public INVOICE_MANAGER_WHITELISTED_TOKENS;
+    address[] public sessionKeyDisablers = [0xb63D98DC1e8095a45791549A8326504b26e4A21c];
+    address[] public settlerRole = [0xb63D98DC1e8095a45791549A8326504b26e4A21c];
 
     function run() external {
         HookMultiPlexer hookMultiPlexer;
@@ -81,6 +103,9 @@ contract PULSE_DeployTestContracts is Script {
                             Deploy InvoiceManager
         //////////////////////////////////////////////////////////////*/
 
+        resourceLockValidator = ResourceLockValidator(TESTING_RESOURCE_LOCK_VALIDATOR_ADDRESS);
+        credibleAccountModule = CredibleAccountModule(TESTING_CREDIBLE_ACCOUNT_MODULE_ADDRESS);
+
         console2.log("Deploying InvoiceManager...");
         if (TESTING_INVOICE_MANAGER_ADDRESS.code.length == 0) {
             invoiceManager =
@@ -97,6 +122,8 @@ contract PULSE_DeployTestContracts is Script {
         /*//////////////////////////////////////////////////////////////
         CredibleAccountModule/ResourceLockValidator/InvoiceManager Setup
         //////////////////////////////////////////////////////////////*/
+
+        invoiceManager = InvoiceManager(TESTING_INVOICE_MANAGER_ADDRESS);
 
         console2.log("Setting up CredibleAccountModule and ResourceLockValidator...");
         address camSetup = credibleAccountModule.resourceLockValidator();
@@ -144,6 +171,20 @@ contract PULSE_DeployTestContracts is Script {
             console2.log("Addresses with SESSION_KEY_DISABLER_ROLE:", disablerRole.length);
             for (uint256 i; i < disablerRole.length; ++i) {
                 console2.log(disablerRole[i]);
+            }
+        }
+
+        /*//////////////////////////////////////////////////////////////
+                Optional: Add SettlerRole To InvoiceManager
+        //////////////////////////////////////////////////////////////*/
+
+
+        console2.log("Granting SETTLER_ROLE to addresses...");
+        if (settlerRole.length > 0) {
+            for (uint256 i; i < settlerRole.length; ++i) {
+                address settler = settlerRole[i];
+                console2.log("Granting SETTLER_ROLE to:", settler);
+                invoiceManager.grantSettlerRole(settler);
             }
         }
 

@@ -10,7 +10,11 @@ import {
     TEST_USDT_BASE_SEPOLIA,
     TEST_DAI_SEPOLIA,
     TEST_USDC_SEPOLIA,
-    TEST_USDT_SEPOLIA
+    TEST_USDT_SEPOLIA,
+    USDC_ARBITRUM,
+    USDT_ARBITRUM,
+    USDCE_ARBITRUM,
+    DAI_ARBITRUM
 } from "./utils/PulseConstants.sol";
 
 contract IM_WhitelistTokenManagement is Script {
@@ -18,7 +22,7 @@ contract IM_WhitelistTokenManagement is Script {
 
     // Tokens to add to whitelist
     // Leave empty to skip
-    address[] public tokensToAdd = [TEST_DAI_SEPOLIA];
+    address[] public tokensToAdd = [DAI_ARBITRUM];
 
     // Tokens to remove from whitelist
     // Leave empty to skip

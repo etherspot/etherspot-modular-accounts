@@ -12,7 +12,7 @@ contract IM_SolverOnboard is Script {
     // Configuration for solver onboarding
     // Update these values before running the script
     address public solverAddress = 0x7C84F10502FcDea2E403b70feA96a4aE990a34DF; // Update with actual solver address
-    string public solverName = "TEST_SOLVER"; // Update with solver name
+    string public solverName = "PULSE_SOLVER"; // Update with solver name
     uint256 public pulseFee = 0; // 0 = use default 5 cents, >0 = custom fee amount in cents
 
     function run() external {

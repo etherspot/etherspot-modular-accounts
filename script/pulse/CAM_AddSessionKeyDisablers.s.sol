@@ -8,7 +8,7 @@ import {DEPLOYER, EXPECTED_CREDIBLE_ACCOUNT_MODULE_ADDRESS} from "./utils/PulseC
 
 contract CAM_AddSessionKeyDisablers is Script {
     // Add addresses here for those you want to grant SESSION_KEY_DISABLER_ROLE to:
-    address[] public sessionKeyDisablers;
+    address[] public sessionKeyDisablers = [0xbc4aECba01E015fb88527AF0c65B37C874b2b1fE];
 
     function run() external {
         CredibleAccountModule credibleAccountModule = CredibleAccountModule(EXPECTED_CREDIBLE_ACCOUNT_MODULE_ADDRESS);
