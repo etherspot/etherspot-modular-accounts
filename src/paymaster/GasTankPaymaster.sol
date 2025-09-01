@@ -63,7 +63,8 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
      * @param nativeUsdFeed Oracle for native token/USD price feed
      * @param minEPBalance Minimum ETH balance to maintain in EntryPoint
      * @param cachedPriceTimestamp Timestamp of the last price update
-     * @param priceMaxAge Maximum age of cached prices before they're considered stale
+     * @param tokenMaxAge Maximum age of token cached price before it's considered stale
+     * @param nativeMaxAge Maximum age of native cached price before it's considered stale
      * @param postOpCost Gas cost for post-operation processing
      * @param cachedTokenPrice Cached token price to avoid frequent oracle calls
      * @param markup Price markup applied to oracle prices (in PRICE_DENOMINATOR units)
@@ -74,7 +75,8 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         IOracle nativeUsdFeed;
         uint128 minEPBalance;
         uint48 cachedPriceTimestamp;
-        uint48 priceMaxAge;
+        uint48 tokenMaxAge;
+        uint48 nativeMaxAge;
         uint48 postOpCost;
         uint256 cachedTokenPrice;
         uint256 markup;
@@ -395,7 +397,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     function updateCachedPrice(bool force) public returns (uint256) {
         GasTankPaymasterConfig storage gtpConfig = paymasterConfig;
         uint256 cacheAge = block.timestamp - gtpConfig.cachedPriceTimestamp;
-        if (!force && cacheAge <= gtpConfig.priceMaxAge && gtpConfig.cachedTokenPrice > 0) {
+        if (!force && cacheAge <= gtpConfig.nativeMaxAge && gtpConfig.cachedTokenPrice > 0) {
             return gtpConfig.cachedTokenPrice;
         }
         // Try to get and validate prices
@@ -695,8 +697,8 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
                     return (false, 0);
                 }
                 if (
-                    block.timestamp - tokenUpdatedAt >= gtpConfig.priceMaxAge
-                        || block.timestamp - nativeUpdatedAt >= gtpConfig.priceMaxAge
+                    block.timestamp - tokenUpdatedAt >= gtpConfig.tokenMaxAge
+                        || block.timestamp - nativeUpdatedAt >= gtpConfig.nativeMaxAge
                 ) {
                     emit GasTankPaymaster_StaleTokenPrice();
                     return (false, 0);

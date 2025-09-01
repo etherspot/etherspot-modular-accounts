@@ -24,10 +24,10 @@ contract PULSE_HealthCheck is Script {
     InvoiceManager public invoiceManager;
 
     // Test wallets to check
-    address[] public testWallets = [0x25eE95a6eE844Cae2c7A925e33b2BA20E945F5D7];
+    address[] public checkWallets = [0x25eE95a6eE844Cae2c7A925e33b2BA20E945F5D7];
 
     // Test solvers to check
-    address[] public testSolvers = [
+    address[] public checkSolvers = [
         0x3333333333333333333333333333333333333333,
         0x7C84F10502FcDea2E403b70feA96a4aE990a34DF,
         0xbc4aECba01E015fb88527AF0c65B37C874b2b1fE,
@@ -139,8 +139,8 @@ contract PULSE_HealthCheck is Script {
 
         console2.log("=== WALLET STATISTICS ===");
 
-        for (uint256 i; i < testWallets.length; ++i) {
-            address wallet = testWallets[i];
+        for (uint256 i; i < checkWallets.length; ++i) {
+            address wallet = checkWallets[i];
             console2.log("Wallet:", wallet);
             console2.log("Checking Pulse modules installed correctly...");
 
@@ -174,8 +174,8 @@ contract PULSE_HealthCheck is Script {
 
         console2.log("=== SOLVER STATISTICS ===");
 
-        for (uint256 i; i < testSolvers.length; ++i) {
-            address solver = testSolvers[i];
+        for (uint256 i; i < checkSolvers.length; ++i) {
+            address solver = checkSolvers[i];
             console2.log("Solver:", solver);
 
             (string memory name, bool isActive, uint256 successfulSettlements, uint256 activeInvoices, uint256 pulseFee)

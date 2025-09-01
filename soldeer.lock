@@ -6,6 +6,20 @@ checksum = "6dbd0440446b2ed16ca25e9f1af08fc0c5c1e73e71fee86ae8a00daa774e3817"
 integrity = "4cb7f3777f67fdf4b7d0e2f94d2f93f198b2e5dce718b7062ac7c2c83e1183bd"
 
 [[dependencies]]
+name = "@uniswap-v3-core"
+version = "1.0.2-solc-0.8-simulate"
+url = "https://soldeer-revisions.s3.amazonaws.com/@uniswap-v3-core/1_0_2-solc-0_8-simulate_22-01-2024_13:19:54_v3-core.zip"
+checksum = "68949c67a4f22044e4c8dc716362b6d79b07e8990e720bec9b116f54b233ef57"
+integrity = "697a089ffe197580b6cfe07f0c4dd8a35da0836fd1d9e522f73efda4b7314e01"
+
+[[dependencies]]
+name = "@uniswap-v3-periphery"
+version = "1.4.4"
+url = "https://soldeer-revisions.s3.amazonaws.com/@uniswap-v3-periphery/1_4_4_22-01-2024_13:20:51_v3-periphery.zip"
+checksum = "f1ce151585a084bb3ec6fb9cbce4520924d41398c3ce8979169de6f7f70d6a81"
+integrity = "e101a06117b3274cd21a3032fa9a55446e842dc0e0e1b0b25008e094a446c453"
+
+[[dependencies]]
 name = "eth-infinitism-account-abstraction"
 version = "0.7"
 url = "https://soldeer-revisions.s3.amazonaws.com/eth-infinitism-account-abstraction/0_7_29-06-2024_08:28:06_eth-infinitism-account-abstraction-0.7.zip"

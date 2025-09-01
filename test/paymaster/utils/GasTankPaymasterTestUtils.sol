@@ -18,9 +18,9 @@ import {TestOracle} from "../../../src/test/TestOracle.sol";
 import {TestUniswapV3} from "../../../src/test/TestUniswapV3.sol";
 import {IStakeManager} from "ERC4337/interfaces/IStakeManager.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
-import "../../TestAdvancedUtils.t.sol";
+import "../../ModularTestBase.sol";
 
-contract GasTankPaymasterTestUtils is TestAdvancedUtils {
+contract GasTankPaymasterTestUtils is ModularTestBase {
     using ECDSA for bytes32;
 
     /*//////////////////////////////////////////////////////////////
@@ -28,29 +28,16 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
     //////////////////////////////////////////////////////////////*/
 
     // Contract instances
-    ModularEtherspotWallet internal mew;
     GasTankPaymaster internal gasTankUSDC;
     GasTankPaymaster internal gasTankUSDT;
-    TestERC20 internal usdt;
-    TestUSDC internal usdc;
-    TestWETH internal weth;
     TestUniswapV3 internal uniswapV3;
     TestOracle internal usdtOracle;
     TestOracle internal usdcOracle;
     TestOracle internal nativeOracle;
 
     // Test addresses and keys
-    address internal deployer;
-    uint256 internal deployerKey;
-    address internal user1;
-    uint256 internal user1Key;
-    address internal user2;
-    uint256 internal user2Key;
-    address payable internal verifyingSigner;
-    uint256 internal verifyingSignerKey;
-    address payable internal feeReceiver;
-    uint256 internal feeReceiverKey;
-    address payable internal immutable beneficiary;
+    User internal verifyingSigner;
+    User internal feeReceiver;
 
     // Test variables
     uint256 internal constant USDT_INITIAL_MINT = 1000000 * 10 ** 18;
@@ -65,22 +52,11 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
                         SETUP & CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor() {
-        beneficiary = payable(address(uint160(uint256(keccak256(abi.encodePacked("beneficiary"))))));
-    }
-
     function _testSetup() internal {
+        _testInit();
         // Create test accounts
-        (deployer, deployerKey) = makeAddrAndKey("deployer");
-        (user1, user1Key) = makeAddrAndKey("user1");
-        (user2, user2Key) = makeAddrAndKey("user2");
-        (verifyingSigner, verifyingSignerKey) = _makePayableAddrAndKey("verifyingSigner");
-        (feeReceiver, feeReceiverKey) = _makePayableAddrAndKey("feeReceiver");
-        mew = setupMEW();
-        // Deploy test tokens
-        usdt = new TestERC20();
-        usdc = new TestUSDC();
-        weth = new TestWETH();
+        verifyingSigner = _createUser("VerifyingSigner");
+        feeReceiver = _createUser("FeeReceiver");
         // Create mock uniswap and oracle
         uniswapV3 = new TestUniswapV3(weth);
         // Fund the mock uniswap with tokens for swaps
@@ -94,24 +70,25 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         usdcOracle = new TestOracle(100000000, 8);
         nativeOracle = new TestOracle(200000000000, 8);
         // Mint tokens to users
-        usdc.mint(user1, USDC_INITIAL_MINT);
-        usdc.mint(user2, USDC_INITIAL_MINT);
-        usdc.mint(feeReceiver, USDC_INITIAL_MINT);
-        usdt.mint(user1, USDT_INITIAL_MINT);
-        usdt.mint(user2, USDT_INITIAL_MINT);
-        usdt.mint(feeReceiver, USDT_INITIAL_MINT);
-        vm.deal(deployer, 10000 ether);
-        vm.deal(user1, 10 ether);
-        vm.deal(user2, 10 ether);
-        vm.deal(feeReceiver, 10000 ether);
-        vm.startPrank(deployer);
+        deal({token: address(usdc), to: alice.pub, give: USDC_INITIAL_MINT});
+        deal({token: address(usdc), to: bob.pub, give: USDC_INITIAL_MINT});
+        deal({token: address(usdc), to: feeReceiver.pub, give: USDC_INITIAL_MINT});
+        deal({token: address(usdt), to: alice.pub, give: USDT_INITIAL_MINT});
+        deal({token: address(usdt), to: bob.pub, give: USDT_INITIAL_MINT});
+        deal({token: address(usdt), to: feeReceiver.pub, give: USDT_INITIAL_MINT});
+        vm.deal(deployer.pub, 10000 ether);
+        vm.deal(alice.pub, 10 ether);
+        vm.deal(bob.pub, 10 ether);
+        vm.deal(feeReceiver.pub, 10000 ether);
+        vm.startPrank(deployer.pub);
         // Create paymaster configurations
         GasTankPaymaster.GasTankPaymasterConfig memory paymasterConfigUSDC = GasTankPaymaster.GasTankPaymasterConfig({
             tokenUsdFeed: IOracle(address(usdcOracle)),
             nativeUsdFeed: IOracle(address(nativeOracle)),
             minEPBalance: 1 ether,
             cachedPriceTimestamp: 0,
-            priceMaxAge: 1 hours,
+            tokenMaxAge: 24 hours,
+            nativeMaxAge: 5 minutes,
             postOpCost: 35000,
             cachedTokenPrice: 0,
             markup: PRICE_DENOMINATOR * 12 / 10,
@@ -122,7 +99,8 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
             nativeUsdFeed: IOracle(address(nativeOracle)),
             minEPBalance: 1 ether,
             cachedPriceTimestamp: 0,
-            priceMaxAge: 1 hours,
+            tokenMaxAge: 24 hours,
+            nativeMaxAge: 5 minutes,
             postOpCost: 35000,
             cachedTokenPrice: 0,
             markup: PRICE_DENOMINATOR * 12 / 10,
@@ -132,9 +110,9 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
             UniswapHelper.UniswapHelperConfig({minSwapAmount: 0.0001 ether, uniswapPoolFee: 3000, slippage: 50});
         // Deploy gas tank contracts
         gasTankUSDC = new GasTankPaymaster(
-            deployer,
-            verifyingSigner,
-            feeReceiver,
+            deployer.pub,
+            verifyingSigner.pub,
+            feeReceiver.pub,
             entrypoint,
             ISwapRouter(address(uniswapV3)),
             IERC20Metadata(address(usdc)),
@@ -143,9 +121,9 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
             uniswapConfig
         );
         gasTankUSDT = new GasTankPaymaster(
-            deployer,
-            verifyingSigner,
-            feeReceiver,
+            deployer.pub,
+            verifyingSigner.pub,
+            feeReceiver.pub,
             entrypoint,
             ISwapRouter(address(uniswapV3)),
             IERC20Metadata(address(usdt)),
@@ -159,6 +137,7 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         entrypoint.depositTo{value: 1000 ether}(address(gasTankUSDT));
         gasTankUSDT.addStake{value: 1000 ether}(86400);
         vm.stopPrank();
+        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -225,7 +204,7 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
     ) internal view returns (PackedUserOperation memory) {
         PackedUserOperation memory userOp =
             _createUserOperation(_sender, _callData, _maxFeePerGas, _maxPriorityFeePerGas, _signerKey);
-        userOp.nonce = getNonce(_sender, address(ecdsaValidator));
+        userOp.nonce = _getNonce(_sender, address(moecdsav));
         // Add paymaster data
         userOp.paymasterAndData = abi.encodePacked(_paymaster);
         // Sign the user operation
@@ -249,7 +228,7 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         // Create base user operation
         userOp = PackedUserOperation({
             sender: _sender,
-            nonce: getNonce(_sender, address(ecdsaValidator)),
+            nonce: _getNonce(_sender, address(moecdsav)),
             initCode: bytes(""),
             callData: _callData,
             accountGasLimits: bytes32(abi.encodePacked(uint128(2000000), uint128(2000000))),
@@ -287,12 +266,6 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         return userOp;
     }
 
-    function _executeUserOp(PackedUserOperation memory _op) internal {
-        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
-        ops[0] = _op;
-        entrypoint.handleOps(ops, beneficiary);
-    }
-
     /*//////////////////////////////////////////////////////////////
                     PAYMASTER CONFIGURATION
     //////////////////////////////////////////////////////////////*/
@@ -302,15 +275,17 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         uint256 _markup,
         uint128 _minEPBalance,
         uint48 _postOpCost,
-        uint48 _priceMaxAge
+        uint48 _tokenMaxAge,
+        uint48 _nativeMaxAge
     ) internal {
         // Get current config to preserve oracle settings
         GasTankPaymaster.GasTankPaymasterConfig memory currentConfig = _gasTank.getPaymasterConfig();
         currentConfig.markup = _markup;
         currentConfig.minEPBalance = _minEPBalance;
         currentConfig.postOpCost = _postOpCost;
-        currentConfig.priceMaxAge = _priceMaxAge;
-        vm.prank(deployer);
+        currentConfig.tokenMaxAge = _tokenMaxAge;
+        currentConfig.nativeMaxAge = _nativeMaxAge;
+        vm.prank(deployer.pub);
         _gasTank.configurePaymaster(currentConfig);
     }
 
@@ -343,12 +318,12 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
     //////////////////////////////////////////////////////////////*/
 
     function _addStake(GasTankPaymaster _gasTank, uint256 _amount, uint32 _unstakeDelaySec) internal {
-        vm.deal(owner1, _amount);
+        vm.deal(address(scw), _amount);
         _gasTank.addStake{value: _amount}(_unstakeDelaySec);
     }
 
     function _depositToEntryPoint(GasTankPaymaster _gasTank, uint256 _amount) internal {
-        vm.deal(owner1, _amount);
+        vm.deal(address(scw), _amount);
         _gasTank.deposit{value: _amount}();
     }
 
@@ -376,17 +351,17 @@ contract GasTankPaymasterTestUtils is TestAdvancedUtils {
         bytes memory setValueOnTarget = abi.encodeCall(MockTarget.setValue, 1337);
         return abi.encodeCall(
             IERC7579Account.execute,
-            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(target), uint256(0), setValueOnTarget))
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(mockTar), uint256(0), setValueOnTarget))
         );
     }
 
     function _createBasicUserOp() internal returns (PackedUserOperation memory) {
         return _createUserOperation(
-            address(mew), // sender
+            address(scw), // sender
             _getBasicCalldata(), // callData
             1 gwei, // maxFeePerGas
             1 gwei, // maxPriorityFeePerGas
-            owner1Key // signerKey
+            eoa.priv // signerKey
         );
     }
 }

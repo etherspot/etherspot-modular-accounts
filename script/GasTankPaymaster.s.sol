@@ -10,6 +10,14 @@ import {IEntryPoint} from "ERC4337/interfaces/IEntryPoint.sol";
 import {IOracle} from "../src/interfaces/IOracle.sol";
 import {GasTankPaymaster} from "../src/paymaster/GasTankPaymaster.sol";
 import {UniswapHelper} from "../src/paymaster/utils/UniswapHelper.sol";
+// Check utils/ScriptConstants.sol for stored config addresses
+import {
+    OPTIMISM_USDC,
+    OPTIMISM_WETH,
+    OPTIMISM_USDC_USD_ORACLE,
+    OPTIMISM_WETH_USD_ORACLE,
+    UNISWAP_ROUTER
+} from "./utils/ScriptConstants.sol";
 
 /**
  * @author Etherspot.
@@ -26,21 +34,23 @@ contract GasTankPaymasterScript is Script {
                          CHANGE THESE VALUES
     //////////////////////////////////////////////////////////////*/
 
+    // CHANGE THESE VALUES
+    address public constant TOKEN_ADDRESS = OPTIMISM_USDC;
+    address public constant WRAPPED_NATIVE_TOKEN_ADDRESS = OPTIMISM_WETH;
+    address public constant TOKEN_ORACLE = OPTIMISM_USDC_USD_ORACLE;
+    address public constant NATIVE_TOKEN_ORACLE = OPTIMISM_WETH_USD_ORACLE;
+
     // Address settings
     address public constant DEPLOYER = 0x09FD4F6088f2025427AB1e89257A44747081Ed59;
     address payable public constant VERIFYING_SIGNER = payable(0x09FD4F6088f2025427AB1e89257A44747081Ed59);
     address payable public constant FEE_RECEIVER = payable(0x09FD4F6088f2025427AB1e89257A44747081Ed59);
-    address public constant SWAP_ROUTER_ADDRESS = 0xE592427A0AEce92De3Edee1F18E0157C05861564; // Arbitrum - Uniswap SwapRouter
-    address public constant TOKEN_ADDRESS = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831; // Arbitrum - USDC
-    address public constant WRAPPED_NATIVE_TOKEN_ADDRESS = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1; // Arbitrum - WETH
-    address public constant TOKEN_ORACLE = 0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3; // Arbitrum - USDC/USD (Chainlink)
-    address public constant NATIVE_TOKEN_ORACLE = 0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612; // Arbitrum - WETH/USD (Chainlink)
     // PaymasterConfig settings
     uint256 public constant PRICE_MARKUP = 1e26 * 12 / 10; // 1.2x markup
     uint128 public constant MINIMUM_ENTRYPOINT_BALANCE = 0.0005 ether;
     uint48 public constant POST_OP_COST = 35000;
-    uint48 public constant PRICE_MAX_AGE = 24 hours + 1 minutes;
-    uint256 public constant MINIMUM_FEE_RECEIVER_TOKEN_BALANCE_FOR_TOPUP = 1; // adjusted for testing
+    uint48 public constant TOKEN_MAX_AGE = 24 hours + 1 minutes;
+    uint48 public constant NATIVE_MAX_AGE = 11 minutes;
+    uint256 public constant MINIMUM_FEE_RECEIVER_TOKEN_BALANCE_FOR_TOPUP = 10;
     // UniswapHelperConfig settings
     uint256 public constant MINIMUM_SWAP_AMOUNT = 0.0001 ether;
     uint24 public constant UNISWAP_POOL_FEE = 3000; // 0.3%
@@ -55,10 +65,11 @@ contract GasTankPaymasterScript is Script {
         /*//////////////////////////////////////////////////////////////
                Configure GasTankPaymaster Constructor Parameters
         //////////////////////////////////////////////////////////////*/
+
         console2.log("Configuring GasTankPaymaster settings...");
 
         IEntryPoint ENTRY_POINT = IEntryPoint(ENTRY_POINT_07);
-        ISwapRouter SWAP_ROUTER = ISwapRouter(SWAP_ROUTER_ADDRESS);
+        ISwapRouter SWAP_ROUTER = ISwapRouter(UNISWAP_ROUTER);
         IERC20Metadata TOKEN = IERC20Metadata(TOKEN_ADDRESS);
         IERC20 WRAPPED_NATIVE_TOKEN = IERC20(WRAPPED_NATIVE_TOKEN_ADDRESS);
 
@@ -68,7 +79,8 @@ contract GasTankPaymasterScript is Script {
             nativeUsdFeed: IOracle(NATIVE_TOKEN_ORACLE),
             minEPBalance: MINIMUM_ENTRYPOINT_BALANCE,
             cachedPriceTimestamp: 0,
-            priceMaxAge: PRICE_MAX_AGE,
+            tokenMaxAge: TOKEN_MAX_AGE,
+            nativeMaxAge: NATIVE_MAX_AGE,
             postOpCost: POST_OP_COST,
             cachedTokenPrice: 0,
             markup: PRICE_MARKUP,
