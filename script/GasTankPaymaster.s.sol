@@ -27,6 +27,8 @@ import {
  */
 contract GasTankPaymasterScript is Script {
     address public constant ENTRY_POINT_07 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
+    address public constant EXPECTED_USDC_GTP = 0xF593Db12C6d16713c0c836377f8E3d033cB67BC3;
+    address public constant EXPECTED_USDT_GTP = 0x01fB4C795508Fdd23A1C0fa46bb82444368B791d;
 
     /*//////////////////////////////////////////////////////////////
                          CHANGE THESE VALUES
