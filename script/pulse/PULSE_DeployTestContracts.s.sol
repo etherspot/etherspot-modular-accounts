@@ -6,7 +6,7 @@ import {console2} from "forge-std/console2.sol";
 import {HookMultiPlexer} from "../../src/modules/hooks/HookMultiPlexer.sol";
 import {CredibleAccountModule} from "../../src/modules/validators/CredibleAccountModule.sol";
 import {ResourceLockValidator} from "../../src/modules/validators/ResourceLockValidator.sol";
-import {InvoiceManager} from "../../src/utils/InvoiceManager.sol";
+import {InvoiceManager} from "../../src/invoice_manager/InvoiceManager.sol";
 import {
     DAI_ARBITRUM,
     DAI_BASE,
@@ -177,7 +177,6 @@ contract PULSE_DeployTestContracts is Script {
         /*//////////////////////////////////////////////////////////////
                 Optional: Add SettlerRole To InvoiceManager
         //////////////////////////////////////////////////////////////*/
-
 
         console2.log("Granting SETTLER_ROLE to addresses...");
         if (settlerRole.length > 0) {

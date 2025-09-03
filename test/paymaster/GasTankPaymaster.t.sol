@@ -238,13 +238,6 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         assertEq(address(gasTankUSDC.uniswap()), newSwapRouter);
     }
 
-    function test_setSupportedToken() public {
-        address newToken = makeAddr("newToken");
-        vm.prank(deployer.pub);
-        _setSupportedToken(gasTankUSDC, newToken);
-        assertEq(address(gasTankUSDC.supportedToken()), newToken);
-    }
-
     function test_withdrawFromEntryPoint() public {
         uint256 withdrawAmount = 0.5 ether;
         uint256 initialDeposit = _getEntryPointDeposit(gasTankUSDC);

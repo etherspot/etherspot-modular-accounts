@@ -9,7 +9,7 @@ import {HookType} from "../../src/common/Enums.sol";
 import {HookMultiPlexer} from "../../src/modules/hooks/HookMultiPlexer.sol";
 import {CredibleAccountModule} from "../../src/modules/validators/CredibleAccountModule.sol";
 import {ResourceLockValidator} from "../../src/modules/validators/ResourceLockValidator.sol";
-import {InvoiceManager} from "../../src/utils/InvoiceManager.sol";
+import {InvoiceManager} from "../../src/invoice_manager/InvoiceManager.sol";
 import {
     EXPECTED_HOOK_MULTIPLEXER_ADDRESS,
     EXPECTED_CREDIBLE_ACCOUNT_MODULE_ADDRESS,

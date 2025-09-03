@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.23;
 
+// GAS TANK PAYMASTER IDENTIFIERS (for deterministic deployment)
+bytes32 constant USDC_GTP_SALT = keccak256(abi.encodePacked("GasTankPaymaster:Create2:USDC"));
+bytes32 constant USDT_GTP_SALT = keccak256(abi.encodePacked("GasTankPaymaster:Create2:USDT"));
+
 // UNISWAP ROUTER
 address constant UNISWAP_ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
 

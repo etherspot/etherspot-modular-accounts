@@ -108,10 +108,6 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     event GasTankPaymaster_FeeReceiverUpdated(address feeReceiver);
     /// @notice Emitted when swap router is updated
     event GasTankPaymaster_SwapRouterUpdated(address swapRouter);
-    /// @notice Emitted when supported token is updated
-    event GasTankPaymaster_SupportedTokenUpdated(address supportedToken);
-    /// @notice Emitted when wrapped native token is updated
-    event GasTankPaymaster_WrappedNativeTokenUpdated(address wrappedNative);
     /// @notice Emitted when a user deposits tokens into their gas tank
     event GasTankPaymaster_Deposited(address indexed user, uint256 amount);
     /// @notice Emitted when a user withdraws tokens from their gas tank
@@ -205,36 +201,51 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
      * @param _verifyingSigner Address authorized to sign paymaster operations
      * @param _feeReceiver Address to receive fees
      * @param _ep EntryPoint contract address
-     * @param _swapRouter Uniswap V3 SwapRouter address
-     * @param _token ERC20 token used for payments
-     * @param _wrappedNative Wrapped native token address
-     * @param _paymasterConfig Initial paymaster configuration
-     * @param _uniswapConfig Uniswap helper configuration
      */
-    constructor(
-        address _owner,
-        address payable _verifyingSigner,
-        address payable _feeReceiver,
-        IEntryPoint _ep,
-        ISwapRouter _swapRouter,
-        IERC20Metadata _token,
-        IERC20 _wrappedNative,
-        GasTankPaymasterConfig memory _paymasterConfig,
-        UniswapHelperConfig memory _uniswapConfig
-    ) BasePaymaster(_ep) UniswapHelper(_token, _wrappedNative, _swapRouter, _uniswapConfig) {
+    constructor(address _owner, address payable _verifyingSigner, address payable _feeReceiver, IEntryPoint _ep)
+        BasePaymaster(_ep)
+    {
         if (_owner == address(0)) revert GasTankPaymaster_InvalidAddress();
         if (_verifyingSigner == address(0)) revert GasTankPaymaster_InvalidAddress();
         if (_feeReceiver == address(0)) revert GasTankPaymaster_InvalidAddress();
         if (address(_ep) == address(0)) revert GasTankPaymaster_InvalidAddress();
+        verifyingSigner = _verifyingSigner;
+        feeReceiver = _feeReceiver;
+        transferOwnership(_owner);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                SETUP
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Initializes chain-specific configuration for the GasTankPaymaster.
+     * @dev Can only be called once by the contract owner. Must be executed
+     *      immediately after deployment to complete initialization.
+     *      This function configures the UniswapHelper and paymaster settings,
+     *      and grants Uniswap router token approvals.
+     *
+     * @param _token ERC20 token used for payments
+     * @param _wrappedNative Wrapped native token address
+     * @param _swapRouter Uniswap SwapRouter address for this chain
+     * @param _paymasterConfig Chain-specific paymaster configuration
+     * @param _uniswapConfig Uniswap helper configuration for swap logic
+     */
+    function setup(
+        IERC20Metadata _token,
+        IERC20 _wrappedNative,
+        ISwapRouter _swapRouter,
+        GasTankPaymasterConfig memory _paymasterConfig,
+        UniswapHelperConfig memory _uniswapConfig
+    ) external onlyOwner {
         if (address(_swapRouter) == address(0)) revert GasTankPaymaster_InvalidAddress();
         if (address(_token) == address(0)) revert GasTankPaymaster_InvalidAddress();
         if (address(_wrappedNative) == address(0)) revert GasTankPaymaster_InvalidAddress();
         if (address(_paymasterConfig.tokenUsdFeed) == address(0)) revert GasTankPaymaster_InvalidAddress();
         if (address(_paymasterConfig.nativeUsdFeed) == address(0)) revert GasTankPaymaster_InvalidAddress();
-        verifyingSigner = _verifyingSigner;
-        feeReceiver = _feeReceiver;
+
+        _initUniswapHelper(_token, _wrappedNative, _swapRouter, _uniswapConfig);
         configurePaymaster(_paymasterConfig);
-        transferOwnership(_owner);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -299,26 +310,6 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         uniswap = _swapRouter;
         token.approve(address(uniswap), type(uint256).max);
         emit GasTankPaymaster_SwapRouterUpdated(address(_swapRouter));
-    }
-
-    /**
-     * @notice Updates the supported ERC20 token
-     * @param _supportedToken New supported token address
-     */
-    function setSupportedToken(IERC20 _supportedToken) external onlyOwner {
-        if (address(_supportedToken) == address(0)) revert GasTankPaymaster_InvalidAddress();
-        token = _supportedToken;
-        emit GasTankPaymaster_SupportedTokenUpdated(address(_supportedToken));
-    }
-
-    /**
-     * @notice Updates the wrapped native token address
-     * @param _wrappedNative New wrapped native token address
-     */
-    function setWrappedNativeToken(IERC20 _wrappedNative) external onlyOwner {
-        if (address(_wrappedNative) == address(0)) revert GasTankPaymaster_InvalidAddress();
-        wrappedNative = _wrappedNative;
-        emit GasTankPaymaster_WrappedNativeTokenUpdated(address(_wrappedNative));
     }
 
     /*//////////////////////////////////////////////////////////////

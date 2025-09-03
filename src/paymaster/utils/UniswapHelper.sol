@@ -27,18 +27,27 @@ abstract contract UniswapHelper {
     /// @notice The ERC-20 token that wraps the native asset for current chain
     IERC20 internal wrappedNative;
     UniswapHelperConfig private uniswapHelperConfig;
+    bool private initialized;
 
-    constructor(
+    error AlreadyInitialized();
+
+    function _initUniswapHelper(
         IERC20 _token,
         IERC20 _wrappedNative,
         ISwapRouter _uniswap,
         UniswapHelperConfig memory _uniswapHelperConfig
-    ) {
+    ) internal {
+        if (initialized) revert AlreadyInitialized();
+
+        // Approve router for token
         _token.approve(address(_uniswap), type(uint256).max);
+
         token = _token;
         wrappedNative = _wrappedNative;
         uniswap = _uniswap;
         _setUniswapHelperConfiguration(_uniswapHelperConfig);
+
+        initialized = true;
     }
 
     function _setUniswapHelperConfiguration(UniswapHelperConfig memory _uniswapHelperConfig) internal {

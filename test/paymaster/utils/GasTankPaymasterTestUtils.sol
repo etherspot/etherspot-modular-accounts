@@ -109,25 +109,19 @@ contract GasTankPaymasterTestUtils is ModularTestBase {
         UniswapHelper.UniswapHelperConfig memory uniswapConfig =
             UniswapHelper.UniswapHelperConfig({minSwapAmount: 0.0001 ether, uniswapPoolFee: 3000, slippage: 50});
         // Deploy gas tank contracts
-        gasTankUSDC = new GasTankPaymaster(
-            deployer.pub,
-            verifyingSigner.pub,
-            feeReceiver.pub,
-            entrypoint,
-            ISwapRouter(address(uniswapV3)),
+        gasTankUSDC = new GasTankPaymaster(deployer.pub, verifyingSigner.pub, feeReceiver.pub, entrypoint);
+        gasTankUSDC.setup(
             IERC20Metadata(address(usdc)),
             IERC20Metadata(address(weth)),
+            ISwapRouter(address(uniswapV3)),
             paymasterConfigUSDC,
             uniswapConfig
         );
-        gasTankUSDT = new GasTankPaymaster(
-            deployer.pub,
-            verifyingSigner.pub,
-            feeReceiver.pub,
-            entrypoint,
-            ISwapRouter(address(uniswapV3)),
+        gasTankUSDT = new GasTankPaymaster(deployer.pub, verifyingSigner.pub, feeReceiver.pub, entrypoint);
+        gasTankUSDT.setup(
             IERC20Metadata(address(usdt)),
             IERC20Metadata(address(weth)),
+            ISwapRouter(address(uniswapV3)),
             paymasterConfigUSDT,
             uniswapConfig
         );
@@ -299,14 +293,6 @@ contract GasTankPaymasterTestUtils is ModularTestBase {
 
     function _setSwapRouter(GasTankPaymaster _gasTank, address _newSwapRouter) internal {
         _gasTank.setSwapRouter(ISwapRouter(_newSwapRouter));
-    }
-
-    function _setSupportedToken(GasTankPaymaster _gasTank, address _newToken) internal {
-        _gasTank.setSupportedToken(IERC20(_newToken));
-    }
-
-    function _setWrappedNativeToken(GasTankPaymaster _gasTank, address _newWrappedNative) internal {
-        _gasTank.setWrappedNativeToken(IERC20(_newWrappedNative));
     }
 
     function _transferOwnership(GasTankPaymaster _gasTank, address _newOwner) internal {

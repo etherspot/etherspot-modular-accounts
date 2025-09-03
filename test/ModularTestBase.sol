@@ -30,7 +30,7 @@ import {ERC1155FallbackHandler} from "../src/modules/fallbacks/ERC1155FallbackHa
 import {CredibleAccountModule} from "../src/modules/validators/CredibleAccountModule.sol";
 import {HookMultiPlexer} from "../src/modules/hooks/HookMultiPlexer.sol";
 import {ResourceLockValidator} from "../src/modules/validators/ResourceLockValidator.sol";
-import {InvoiceManager} from "../src/utils/InvoiceManager.sol";
+import {InvoiceManager} from "../src/invoice_manager/InvoiceManager.sol";
 import {MockValidator} from "ERC7579/test/mocks/MockValidator.sol";
 import {MockExecutor} from "ERC7579/test/mocks/MockExecutor.sol";
 import {MockFallback} from "ERC7579/test/mocks/MockFallbackHandler.sol";

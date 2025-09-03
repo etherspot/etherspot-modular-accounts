@@ -16,7 +16,8 @@ import {
     OPTIMISM_WETH,
     OPTIMISM_USDC_USD_ORACLE,
     OPTIMISM_WETH_USD_ORACLE,
-    UNISWAP_ROUTER
+    UNISWAP_ROUTER,
+    USDC_GTP_SALT
 } from "./utils/ScriptConstants.sol";
 
 /**
@@ -25,16 +26,16 @@ import {
  * @dev Deployment script for GasTankPaymaster.
  */
 contract GasTankPaymasterScript is Script {
-    bytes32 public immutable TEST_SALT = bytes32(abi.encodePacked("ModularEtherspotWallet:Create2:testSalt"));
-    bytes32 public immutable SALT = bytes32(abi.encodePacked("ModularEtherspotWallet:Create2:salt"));
     address public constant ENTRY_POINT_07 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
-    // address public constant EXPECTED_GAS_TANK_PAYMASTER = address(0);
 
     /*//////////////////////////////////////////////////////////////
                          CHANGE THESE VALUES
     //////////////////////////////////////////////////////////////*/
 
-    // CHANGE THESE VALUES
+    // Change the SALT based on which token you want to use for the paymaster
+    // See utils/ScriptConstants.sol for examples
+    bytes32 public immutable SALT = USDC_GTP_SALT;
+
     address public constant TOKEN_ADDRESS = OPTIMISM_USDC;
     address public constant WRAPPED_NATIVE_TOKEN_ADDRESS = OPTIMISM_WETH;
     address public constant TOKEN_ORACLE = OPTIMISM_USDC_USD_ORACLE;
@@ -99,17 +100,8 @@ contract GasTankPaymasterScript is Script {
         //////////////////////////////////////////////////////////////*/
         console2.log("Deploying GasTankPaymaster...");
         // if (EXPECTED_GAS_TANK_PAYMASTER.code.length == 0) {
-        GasTankPaymaster gasTankPaymaster = new GasTankPaymaster(
-            DEPLOYER,
-            VERIFYING_SIGNER,
-            FEE_RECEIVER,
-            ENTRY_POINT,
-            SWAP_ROUTER,
-            TOKEN,
-            WRAPPED_NATIVE_TOKEN,
-            paymasterConfig,
-            uniswapConfig
-        );
+        GasTankPaymaster gasTankPaymaster =
+            new GasTankPaymaster{salt: SALT}(DEPLOYER, VERIFYING_SIGNER, FEE_RECEIVER, ENTRY_POINT);
         // if (address(gasTankPaymaster) != EXPECTED_GAS_TANK_PAYMASTER) {
         //     revert("Unexpected GasTankPaymaster address!!!");
         // } else {
@@ -124,15 +116,28 @@ contract GasTankPaymasterScript is Script {
         console2.log("Finished deployment sequence!");
 
         /*//////////////////////////////////////////////////////////////
+                            Setup GasTankPaymaster
+        //////////////////////////////////////////////////////////////*/
+
+        console2.log("Setting up GasTankPaymaster...");
+        gasTankPaymaster.setup(TOKEN, WRAPPED_NATIVE_TOKEN, SWAP_ROUTER, paymasterConfig, uniswapConfig);
+        GasTankPaymaster.GasTankPaymasterConfig memory config = gasTankPaymaster.getPaymasterConfig();
+        if (address(config.nativeUsdFeed) == address(0) || address(config.tokenUsdFeed) == address(0)) {
+            revert("GasTankPaymaster has not been setup correctly!");
+        }
+
+        console2.log("GasTankPaymaster setup complete!");
+
+        /*//////////////////////////////////////////////////////////////
                         Stake Paymaster With EntryPoint
         //////////////////////////////////////////////////////////////*/
 
-        console2.log("Staking paymaster with entrypoint...");
-        gasTankPaymaster.addStake{value: 0.01 ether}(1);
-        console2.log("Stake amount:", uint256(0.01 ether));
-        console2.log("Stake delay:", uint256(1));
-        console2.log("Stake balance:", gasTankPaymaster.getDeposit());
-        console2.log("Staked paymaster with entrypoint!");
+        // console2.log("Staking paymaster with entrypoint...");
+        // gasTankPaymaster.addStake{value: 0.01 ether}(1);
+        // console2.log("Stake amount:", uint256(0.01 ether));
+        // console2.log("Stake delay:", uint256(1));
+        // console2.log("Stake balance:", gasTankPaymaster.getDeposit());
+        // console2.log("Staked paymaster with entrypoint!");
 
         /*//////////////////////////////////////////////////////////////
                         Update Cached Price On Paymaster

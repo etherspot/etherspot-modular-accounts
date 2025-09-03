@@ -204,8 +204,8 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         IResourceLockValidator(resourceLockValidator).removeSessionKeyAuthorization(msg.sender, rl.sessionKey);
         bytes memory invoiceData =
             abi.encode(rl.smartWallet, rl.sessionKey, rl.solver, rl.bidHash, rl.chainId, rl.tokenData);
-        address key = IInvoiceManager(invoiceManager).createInvoice(invoiceData);
-        if (key != rl.sessionKey) revert CredibleAccountModule_InvoiceNotCreated();
+        // TODO: remove return of session key as not required
+        IInvoiceManager(invoiceManager).createInvoice(invoiceData);
         emit CredibleAccountModule_SessionKeyEnabled(rl.sessionKey, msg.sender);
     }
 

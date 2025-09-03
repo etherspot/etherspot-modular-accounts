@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {CredibleAccountModule} from "../../src/modules/validators/CredibleAccountModule.sol";
 import {ResourceLockValidator} from "../../src/modules/validators/ResourceLockValidator.sol";
-import {InvoiceManager} from "../../src/utils/InvoiceManager.sol";
+import {InvoiceManager} from "../../src/invoice_manager/InvoiceManager.sol";
 import {
     DEPLOYER,
     PULSE_SALT,

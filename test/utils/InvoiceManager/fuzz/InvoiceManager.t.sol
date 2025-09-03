@@ -3,7 +3,9 @@ pragma solidity 0.8.23;
 
 import "forge-std/Test.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {InvoiceManager} from "../../../../src/utils/InvoiceManager.sol";
+import {InvoiceManager} from "../../../../src/invoice_manager/InvoiceManager.sol";
+import {SolverManager} from "../../../../src/invoice_manager/SolverManager.sol";
+import {TokenManager} from "../../../../src/invoice_manager/TokenManager.sol";
 import {InvoiceManagerTestUtils} from "../utils/InvoiceManagerTestUtils.sol";
 import {MockTokenWithDecimals} from "../utils/MockTokenWithDecimals.sol";
 import {TokenData} from "../../../../src/common/Structs.sol";
@@ -77,11 +79,11 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
         bytes memory createInvoiceData =
             abi.encode(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH, TEST_CHAIN_ID, tokenData);
 
-        address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
 
         // Get the calculated fees from the invoice
-        TokenData[] memory tokenFees = invoiceManager.calculateInvoiceFees(sessionKey);
+        TokenData[] memory tokenFees = invoiceManager.calculateInvoiceFees(sessionKey.pub);
 
         // Calculate expected fee
         uint256 effectiveFee = pulseFee == 0 ? invoiceManager.PULSE_BASE_FEE() : pulseFee;
@@ -127,14 +129,14 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
         bytes memory createInvoiceData =
             abi.encode(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH, TEST_CHAIN_ID, tokenData);
 
-        address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
 
         // Verify invoice exists
-        assertTrue(invoiceManager.invoiceExists(sessionKey));
+        assertTrue(invoiceManager.invoiceExists(sessionKey.pub));
 
         // Test fee calculation consistency
-        TokenData[] memory tokenFees = invoiceManager.calculateInvoiceFees(sessionKey);
+        TokenData[] memory tokenFees = invoiceManager.calculateInvoiceFees(sessionKey.pub);
         assertEq(tokenFees.length, 1, "Should return one token fee");
         assertEq(tokenFees[0].token, address(fuzzToken), "Token address should match");
 
@@ -165,11 +167,11 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
         bytes memory createInvoiceData =
             abi.encode(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH, TEST_CHAIN_ID, tokenData);
 
-        address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
 
         // Credit tokens to invoice before settlement
-        invoiceManager.creditTokensToInvoice(sessionKey, address(mockToken6), amount6);
-        invoiceManager.creditTokensToInvoice(sessionKey, address(mockToken18), amount18);
+        invoiceManager.creditTokensToInvoice(sessionKey.pub, address(mockToken6), amount6);
+        invoiceManager.creditTokensToInvoice(sessionKey.pub, address(mockToken18), amount18);
 
         vm.stopPrank();
 
@@ -181,10 +183,10 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
 
         // Settle invoice
         vm.prank(settler.pub);
-        invoiceManager.settleInvoice(sessionKey);
+        invoiceManager.settleInvoice(sessionKey.pub);
 
         // Verify settlement
-        assertFalse(invoiceManager.invoiceExists(sessionKey));
+        assertFalse(invoiceManager.invoiceExists(sessionKey.pub));
 
         // Check that solver received tokens (minus fees)
         assertTrue(mockToken6.balanceOf(solver.pub) > initialSolverBalance6);
@@ -237,11 +239,11 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
             bytes memory createInvoiceData =
                 abi.encode(address(scw), sessionKey, solver.pub, bidHash, TEST_CHAIN_ID, tokenData);
 
-            address createdSessionKey = invoiceManager.createInvoice(createInvoiceData);
+            invoiceManager.createInvoice(createInvoiceData);
             vm.stopPrank();
 
             // Get the calculated fees from the invoice
-            TokenData[] memory tokenFees = invoiceManager.calculateInvoiceFees(createdSessionKey);
+            TokenData[] memory tokenFees = invoiceManager.calculateInvoiceFees(sessionKey);
 
             uint256 fee = tokenFees[0].amount;
             uint256 expectedFee = (invoiceManager.PULSE_BASE_FEE() * 10 ** decimalsArray[i]) / 100;
@@ -414,20 +416,20 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
         bytes memory createInvoiceData =
             abi.encode(address(scw), sessionKey, solver.pub, bidHash, TEST_CHAIN_ID, tokenData);
 
-        address createdSessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
 
         // Credit tokens to invoice before settlement
         for (uint256 i; i < tokenCount; ++i) {
-            invoiceManager.creditTokensToInvoice(createdSessionKey, address(tokens[i]), tokenData[i].amount);
+            invoiceManager.creditTokensToInvoice(sessionKey, address(tokens[i]), tokenData[i].amount);
         }
 
         vm.stopPrank();
 
         // Verify invoice creation
-        assertTrue(invoiceManager.invoiceExists(createdSessionKey));
+        assertTrue(invoiceManager.invoiceExists(sessionKey));
 
         // Calculate expected fees for all tokens
-        TokenData[] memory fees = invoiceManager.calculateInvoiceFees(createdSessionKey);
+        TokenData[] memory fees = invoiceManager.calculateInvoiceFees(sessionKey);
         assertEq(fees.length, tokenCount);
 
         // Settle and verify all tokens are processed correctly
@@ -437,7 +439,7 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
         }
 
         vm.prank(settler.pub);
-        invoiceManager.settleInvoice(createdSessionKey);
+        invoiceManager.settleInvoice(sessionKey);
 
         // Verify all tokens were transferred
         for (uint256 i; i < tokenCount; ++i) {
@@ -455,9 +457,9 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
         randomTokenDecimals = uint8(bound(randomTokenDecimals, 0, 30));
 
         // Test various error conditions with random inputs
-        MockTokenWithDecimals randomToken = new MockTokenWithDecimals("Random", "RND", randomTokenDecimals);
-        vm.prank(deployer.pub);
-        invoiceManager.onboardSolver(randomSolver, "random solver", 0);
+        // Use salt to ensure unique addresses for each fuzz run
+        bytes32 salt = keccak256(abi.encodePacked(randomSolver, randomBidHash, randomAmount, randomTokenDecimals));
+        MockTokenWithDecimals randomToken = new MockTokenWithDecimals{salt: salt}("Random", "RND", randomTokenDecimals);
 
         vm.startPrank(credibleAccount.pub);
 
@@ -472,43 +474,33 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
             tokenData
         );
 
-        // Test 1: Non-whitelisted token should always fail first
+        // Test 1: Invalid solver should fail first (before token whitelist check)
         if (randomAmount > 0) {
-            vm.expectRevert(
-                abi.encodeWithSelector(InvoiceManager.IM_TokenNotWhitelisted.selector, address(randomToken))
-            );
+            // randomSolver is not onboarded yet, should get SM_SolverInactive
+            vm.expectRevert(SolverManager.SM_SolverInactive.selector);
             invoiceManager.createInvoice(createInvoiceData);
         }
 
-        // Test 2: Whitelist token but use invalid solver
         vm.stopPrank();
+
+        // Test 2: Onboard solver but don't whitelist token - should get token whitelist error
+        vm.prank(deployer.pub);
+        try invoiceManager.onboardSolver(randomSolver, "Random Solver", 0) {} catch {}
+
+        if (randomAmount > 0) {
+            vm.startPrank(credibleAccount.pub);
+            vm.expectRevert(
+                abi.encodeWithSelector(TokenManager.TM_TokenNotWhitelisted.selector, address(randomToken))
+            );
+            invoiceManager.createInvoice(createInvoiceData);
+            vm.stopPrank();
+        }
+
+        // Test 3: Whitelist token and test amount validation
         vm.prank(deployer.pub);
         invoiceManager.addTokenToWhitelist(address(randomToken));
 
-        vm.startPrank(credibleAccount.pub);
-
-        // If randomSolver is not onboarded or inactive, should get IM_SolverInactive
-        bool solverExists = false;
-        try invoiceManager.getSolverData(randomSolver) returns (string memory, bool isActive, uint256, uint256, uint256)
-        {
-            solverExists = isActive;
-        } catch {
-            solverExists = false;
-        }
-
-        if (!solverExists && randomAmount > 0) {
-            vm.expectRevert(InvoiceManager.IM_SolverInactive.selector);
-            invoiceManager.createInvoice(createInvoiceData);
-        }
-
-        vm.stopPrank();
-
-        // Test 3: Valid solver but zero amount
         if (randomAmount == 0) {
-            // Onboard the solver to make it valid
-            vm.prank(solverManager.pub);
-            try invoiceManager.onboardSolver(randomSolver, "Random Solver", 0) {} catch {}
-
             vm.startPrank(credibleAccount.pub);
             vm.expectRevert(InvoiceManager.IM_InvalidTokenAmount.selector);
             invoiceManager.createInvoice(createInvoiceData);
@@ -517,14 +509,10 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
 
         // Test 4: Valid conditions - should succeed
         if (randomAmount > 0) {
-            // Onboard the solver
-            vm.prank(solverManager.pub);
-            try invoiceManager.onboardSolver(randomSolver, "Random Solver", 0) {} catch {}
-
             // This should succeed if all conditions are met
             vm.startPrank(credibleAccount.pub);
-            try invoiceManager.createInvoice(createInvoiceData) returns (address sessionKey) {
-                assertTrue(invoiceManager.invoiceExists(sessionKey));
+            try invoiceManager.createInvoice(createInvoiceData) {
+                assertTrue(invoiceManager.invoiceExists(address(uint160(uint256(randomBidHash)))));
             } catch {
                 // May fail due to duplicate session key or bid hash, which is fine
             }

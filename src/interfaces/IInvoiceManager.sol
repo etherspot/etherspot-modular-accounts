@@ -5,7 +5,7 @@ import {TokenData} from "../common/Structs.sol";
 
 /**
  * @title IInvoiceManager
- * @notice Interface for InvoiceManager contract that manages invoices for cross-chain payment processing
+ * @notice Interface for core InvoiceManager functionality
  * @author Etherspot
  */
 interface IInvoiceManager {
@@ -33,13 +33,6 @@ interface IInvoiceManager {
         uint256 creditedAmount;
     }
 
-    struct Solver {
-        address solverAddress;
-        uint256 successfulSettlements;
-        bool isActive;
-        string name;
-        uint256 pulseFee;
-    }
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
     //////////////////////////////////////////////////////////////*/
@@ -61,24 +54,18 @@ interface IInvoiceManager {
     );
     event InvoiceSettled(address indexed sessionKey, bytes32 indexed bidHash, address indexed solver);
     event InvoiceCancelled(address indexed sessionKey, string reason);
-    event SolverOnboarded(address indexed solver, string name, uint256 pulseFee);
-    event SolverOffboarded(address indexed solver);
-    event SolverFeeUpdated(address indexed solver, uint256 oldFee, uint256 newFee);
     event FeeReceiverUpdated(address indexed oldReceiver, address indexed newReceiver);
-    event TokenWhitelisted(address indexed token, address indexed addedBy);
-    event TokenRemovedFromWhitelist(address indexed token, address indexed removedBy);
     event TokensCreditedToInvoice(address indexed sessionKey, address indexed token, uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
-                            EXTERNAL FUNCTIONS
+                            CORE INVOICE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     /**
      * @notice Creates a new invoice for payment processing with specified tokens and amounts
      * @param _invoiceData Bytes data containing invoice metadata (smart wallet, session key, solver, bid hash, etc.)
-     * @return sessionKey The session key address of the created invoice
      */
-    function createInvoice(bytes memory _invoiceData) external returns (address sessionKey);
+    function createInvoice(bytes memory _invoiceData) external;
 
     /**
      * @notice Settles an invoice by transferring tokens to solver and fees to fee receiver
@@ -96,33 +83,6 @@ interface IInvoiceManager {
      * @param _amount The amount of tokens being credited to the invoice
      */
     function creditTokensToInvoice(address _sessionKey, address _token, uint256 _amount) external;
-
-    /**
-     * @notice Registers a new solver with specified name and fee structure
-     * @param _solver Address of the solver to onboard
-     * @param _name Human-readable name for the solver
-     * @param _pulseFee Fee in cents (0 = use default 5 cents, >0 = custom fee amount)
-     */
-    function onboardSolver(address _solver, string calldata _name, uint256 _pulseFee) external;
-
-    /**
-     * @notice Updates the fee structure for an existing solver
-     * @param _solver Address of the solver to update
-     * @param _newFee New fee amount in cents (0 = use default, >0 = custom)
-     */
-    function updateSolverFee(address _solver, uint256 _newFee) external;
-
-    /**
-     * @notice Removes a solver from the system and cleans up associated data
-     * @param _solver Address of the solver to remove
-     */
-    function offboardSolver(address _solver) external;
-
-    /**
-     * @notice Toggles the active status of a solver between active and inactive
-     * @param _solver Address of the solver to toggle
-     */
-    function toggleSolverStatus(address _solver) external;
 
     /**
      * @notice Cancels an invoice and removes all associated data
@@ -167,12 +127,15 @@ interface IInvoiceManager {
      */
     function getInvoiceByBidHash(bytes32 _bidHash) external view returns (address sessionKey);
 
-    /**
-     * @notice Gets all active invoice session keys for a specific solver
-     * @param _solver Address of the solver to query
-     * @return Array of session key addresses for active invoices
-     */
-    function getSolverInvoices(address _solver) external view returns (address[] memory);
+    function getInvoicePaymentStatus(address _sessionKey)
+        external
+        view
+        returns (
+            address[] memory tokens,
+            uint256[] memory expectedAmounts,
+            uint256[] memory creditedAmounts,
+            bool isFullyPaid
+        );
 
     /**
      * @notice Calculates fees for each token in an invoice
@@ -203,26 +166,6 @@ interface IInvoiceManager {
     function bidHashExists(bytes32 _bidHash) external view returns (bool);
 
     /**
-     * @notice Retrieves data for a solver
-     * @param _solver Address of the solver to query
-     * @return name Human-readable name of the solver
-     * @return isActive Whether the solver is currently active
-     * @return successfulSettlements Number of invoices successfully settled
-     * @return activeInvoices Number of currently active invoices
-     * @return pulseFee Current fee setting in cents
-     */
-    function getSolverData(address _solver)
-        external
-        view
-        returns (
-            string memory name,
-            bool isActive,
-            uint256 successfulSettlements,
-            uint256 activeInvoices,
-            uint256 pulseFee
-        );
-
-    /**
      * @notice Batch retrieval of multiple invoices with their token data
      * @param _sessionKeys Array of session keys to retrieve
      * @return invoices_ Array of Invoice structs (empty struct if invoice doesn't exist)
@@ -233,62 +176,8 @@ interface IInvoiceManager {
         view
         returns (Invoice[] memory invoices_, InvoiceTokenData[][] memory tokenData_);
 
-    /**
-     * @notice Batch retrieval of multiple solver information
-     * @param _solvers Array of solver addresses to retrieve
-     * @return solvers_ Array of Solver structs
-     */
-    function getMultipleSolvers(address[] calldata _solvers) external view returns (Solver[] memory solvers_);
-
     /*//////////////////////////////////////////////////////////////
-                    TOKEN WHITELIST MANAGEMENT
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Add a token to the whitelist
-     * @param _token The token address to whitelist
-     */
-    function addTokenToWhitelist(address _token) external;
-
-    /**
-     * @notice Add multiple tokens to the whitelist
-     * @param _tokens Array of token addresses to whitelist
-     */
-    function addTokensToWhitelist(address[] calldata _tokens) external;
-
-    /**
-     * @notice Remove a token from the whitelist
-     * @param _token The token address to remove from whitelist
-     */
-    function removeTokenFromWhitelist(address _token) external;
-
-    /**
-     * @notice Remove multiple tokens from the whitelist
-     * @param _tokens Array of token addresses to remove from whitelist
-     */
-    function removeTokensFromWhitelist(address[] calldata _tokens) external;
-
-    /**
-     * @notice Check if a token is whitelisted
-     * @param _token The token address to check
-     * @return bool True if token is whitelisted
-     */
-    function isTokenWhitelisted(address _token) external view returns (bool);
-
-    /**
-     * @notice Get all whitelisted tokens
-     * @return address[] Array of whitelisted token addresses
-     */
-    function getWhitelistedTokens() external view returns (address[] memory);
-
-    /**
-     * @notice Get the number of whitelisted tokens
-     * @return uint256 Number of whitelisted tokens
-     */
-    function getWhitelistedTokensCount() external view returns (uint256);
-
-    /*//////////////////////////////////////////////////////////////
-                        ROLE MANAGEMENT
+                            ROLE MANAGEMENT
     //////////////////////////////////////////////////////////////*/
 
     /**
@@ -315,39 +204,9 @@ interface IInvoiceManager {
      */
     function revokeSettlerRole(address _account) external;
 
-    /**
-     * @notice Grants FEE_MANAGER_ROLE to an address
-     * @param _account Address to grant the role to
-     */
-    function grantFeeManagerRole(address _account) external;
-
-    /**
-     * @notice Revokes FEE_MANAGER_ROLE from an address
-     * @param _account Address to revoke the role from
-     */
-    function revokeFeeManagerRole(address _account) external;
-
-    /**
-     * @notice Grants SOLVER_MANAGER_ROLE to an address
-     * @param _account Address to grant the role to
-     */
-    function grantSolverManagerRole(address _account) external;
-
-    /**
-     * @notice Revokes SOLVER_MANAGER_ROLE from an address
-     * @param _account Address to revoke the role from
-     */
-    function revokeSolverManagerRole(address _account) external;
-
     /*//////////////////////////////////////////////////////////////
                             CONSTANTS
     //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Returns the default pulse base fee in cents
-     * @return uint256 The pulse base fee (5 cents)
-     */
-    function PULSE_BASE_FEE() external view returns (uint256);
 
     /**
      * @notice Returns the fee receiver address

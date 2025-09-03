@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 import "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
-import {InvoiceManager} from "../../src/utils/InvoiceManager.sol";
+import {InvoiceManager} from "../../src/invoice_manager/InvoiceManager.sol";
 import {EXPECTED_INVOICE_MANAGER_ADDRESS} from "./utils/PulseConstants.sol";
 
 contract IM_SolverOnboard is Script {

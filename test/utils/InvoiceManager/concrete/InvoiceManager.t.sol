@@ -4,7 +4,9 @@ pragma solidity 0.8.23;
 import "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
-import {InvoiceManager} from "../../../../src/utils/InvoiceManager.sol";
+import {InvoiceManager} from "../../../../src/invoice_manager/InvoiceManager.sol";
+import {SolverManager} from "../../../../src/invoice_manager/SolverManager.sol";
+import {TokenManager} from "../../../../src/invoice_manager/TokenManager.sol";
 import {InvoiceManagerTestUtils} from "../utils/InvoiceManagerTestUtils.sol";
 import {TokenData} from "../../../../src/common/Structs.sol";
 
@@ -140,10 +142,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.expectEmit(true, true, true, true);
         emit InvoiceCreated(sessionKey.pub, DEFAULT_BID_HASH, solver.pub, defaultTokenData.length, 0);
 
-        address returnedSessionKey = invoiceManager.createInvoice(createInvoiceData);
-
-        // Verify return value
-        assertEq(returnedSessionKey, sessionKey.pub);
+        invoiceManager.createInvoice(createInvoiceData);
 
         // Verify invoice was created
         assertTrue(invoiceManager.invoiceExists(sessionKey.pub));
@@ -185,7 +184,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         bytes memory createInvoiceData =
             abi.encode(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH, TEST_CHAIN_ID, invalidTokenData);
         vm.startPrank(credibleAccount.pub);
-        _toRevert(InvoiceManager.IM_TokenNotWhitelisted.selector, abi.encode(address(nonWhitelistedToken)));
+        _toRevert(TokenManager.TM_TokenNotWhitelisted.selector, abi.encode(address(nonWhitelistedToken)));
         invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
     }
@@ -195,7 +194,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH);
 
         vm.startPrank(credibleAccount.pub);
-        _toRevert(InvoiceManager.IM_SolverInactive.selector, hex"");
+        _toRevert(SolverManager.SM_SolverInactive.selector, hex"");
         invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
     }
@@ -207,7 +206,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
             abi.encode(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH, TEST_CHAIN_ID, emptyTokenData);
 
         vm.startPrank(credibleAccount.pub);
-        _toRevert(InvoiceManager.IM_EmptyTokenData.selector, hex"");
+        _toRevert(TokenManager.TM_EmptyTokenData.selector, hex"");
         invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
     }
@@ -326,7 +325,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.startPrank(credibleAccount.pub);
         bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver2.pub, DEFAULT_BID_HASH);
 
-        address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
 
         // Mint tokens to invoice manager
@@ -339,7 +338,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         uint256 initialFeeReceiverUSDC = testUSDC.balanceOf(feeReceiver.pub);
         uint256 initialSolverUSDC = testUSDC.balanceOf(solver2.pub);
 
-        _settleInvoiceAsSettler(sessionKey);
+        _settleInvoiceAsSettler(sessionKey.pub);
 
         // Verify higher fees were deducted
         assertEq(testUSDC.balanceOf(feeReceiver.pub), initialFeeReceiverUSDC + expectedUSDCFee);
@@ -354,7 +353,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         bytes memory createInvoiceData =
             abi.encode(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH, TEST_CHAIN_ID, singleTokenData);
 
-        address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
 
         _mintTokensToInvoiceManager();
@@ -366,11 +365,11 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         uint256 initialSolverBalance = testUSDC.balanceOf(solver.pub);
 
         // Credit tokens before settlement
-        _creditTokensToInvoice(sessionKey);
+        _creditTokensToInvoice(sessionKey.pub);
         vm.expectEmit(true, true, true, false);
-        emit InvoiceSettled(sessionKey, DEFAULT_BID_HASH, solver.pub);
+        emit InvoiceSettled(sessionKey.pub, DEFAULT_BID_HASH, solver.pub);
         vm.prank(settler.pub);
-        invoiceManager.settleInvoice(sessionKey);
+        invoiceManager.settleInvoice(sessionKey.pub);
 
         assertEq(testUSDC.balanceOf(feeReceiver.pub), initialFeeReceiverBalance + expectedFee);
         assertEq(testUSDC.balanceOf(solver.pub), initialSolverBalance + expectedSolverAmount);
@@ -407,11 +406,11 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.startPrank(credibleAccount.pub);
         bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH);
 
-        address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
 
-        invoiceManager.creditTokensToInvoice(sessionKey, address(testUSDC), DEFAULT_USDC_AMOUNT);
-        invoiceManager.creditTokensToInvoice(sessionKey, address(testUSDT), DEFAULT_USDT_AMOUNT);
-        invoiceManager.creditTokensToInvoice(sessionKey, address(testDAI), DEFAULT_DAI_AMOUNT);
+        invoiceManager.creditTokensToInvoice(sessionKey.pub, address(testUSDC), DEFAULT_USDC_AMOUNT);
+        invoiceManager.creditTokensToInvoice(sessionKey.pub, address(testUSDT), DEFAULT_USDT_AMOUNT);
+        invoiceManager.creditTokensToInvoice(sessionKey.pub, address(testDAI), DEFAULT_DAI_AMOUNT);
         vm.stopPrank();
 
         testUSDC.mint(address(invoiceManager), DEFAULT_USDC_AMOUNT);
@@ -424,7 +423,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
             InvoiceManager.IM_InsufficientContractBalance.selector,
             abi.encode(address(testDAI), DEFAULT_DAI_AMOUNT, DEFAULT_DAI_AMOUNT - 1)
         );
-        invoiceManager.settleInvoice(sessionKey);
+        invoiceManager.settleInvoice(sessionKey.pub);
     }
 
     function test_settleInvoice_success_multipleInvoicesSameSolver() public withOnboardedSolvers {
@@ -439,7 +438,8 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
             bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey, solver.pub, bidHash);
 
-            sessionKeys[i] = invoiceManager.createInvoice(createInvoiceData);
+            invoiceManager.createInvoice(createInvoiceData);
+            sessionKeys[i] = sessionKey;
         }
 
         vm.stopPrank();
@@ -467,7 +467,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.startPrank(credibleAccount.pub);
         bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH);
 
-        address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
 
         _mintTokensToInvoiceManager();
@@ -483,7 +483,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         // Start recording logs
         vm.recordLogs();
 
-        _settleInvoiceAsSettler(sessionKey);
+        _settleInvoiceAsSettler(sessionKey.pub);
 
         // Get all recorded logs
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -511,7 +511,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
                 address solverFromEvent = address(uint160(uint256(logs[i].topics[2])));
                 address tokenFromEvent = address(uint160(uint256(logs[i].topics[3])));
 
-                assertEq(sessionKeyFromEvent, sessionKey, "SessionKey should match");
+                assertEq(sessionKeyFromEvent, sessionKey.pub, "SessionKey should match");
                 assertEq(solverFromEvent, solver.pub, "Solver should match");
 
                 // Decode the data portion for amounts
@@ -541,7 +541,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
                 bytes32 bidHashFromEvent = logs[i].topics[2];
                 address solverFromEvent = address(uint160(uint256(logs[i].topics[3])));
 
-                assertEq(sessionKeyFromEvent, sessionKey, "Settlement sessionKey should match");
+                assertEq(sessionKeyFromEvent, sessionKey.pub, "Settlement sessionKey should match");
                 assertEq(bidHashFromEvent, DEFAULT_BID_HASH, "Settlement bidHash should match");
                 assertEq(solverFromEvent, solver.pub, "Settlement solver should match");
             }
@@ -566,7 +566,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.startPrank(credibleAccount.pub);
         bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH);
 
-        address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
 
         _mintTokensToInvoiceManager();
@@ -578,7 +578,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         uint256 initialFeeReceiverBalance = testUSDC.balanceOf(feeReceiver.pub);
         uint256 initialSolverBalance = testUSDC.balanceOf(solver.pub);
 
-        _settleInvoiceAsSettler(sessionKey);
+        _settleInvoiceAsSettler(sessionKey.pub);
 
         assertEq(testUSDC.balanceOf(feeReceiver.pub), initialFeeReceiverBalance + expectedFee);
         assertEq(testUSDC.balanceOf(solver.pub), initialSolverBalance + expectedSolverAmount);
@@ -595,7 +595,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
         // Settlement should fail
         vm.prank(settler.pub);
-        _toRevert(InvoiceManager.IM_SolverInactive.selector, hex"");
+        _toRevert(SolverManager.SM_SolverInactive.selector, hex"");
         invoiceManager.settleInvoice(sessionKey);
     }
 
@@ -736,8 +736,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
             _createInvoiceData(address(scw2), sessionKey2.pub, solver.pub, DEFAULT_BID_HASH);
 
         // This should not revert
-        address newSessionKey = invoiceManager.createInvoice(createInvoiceData);
-        assertEq(newSessionKey, sessionKey2.pub, "New invoice should be created successfully");
+        invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
     }
 
@@ -747,12 +746,12 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
         bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH);
 
-        address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
 
         bytes memory createInvoiceData2 =
             _createInvoiceData(address(scw2), sessionKey2.pub, solver.pub, SECOND_BID_HASH);
 
-        address sessionKey2 = invoiceManager.createInvoice(createInvoiceData2);
+        invoiceManager.createInvoice(createInvoiceData2);
 
         vm.stopPrank();
 
@@ -760,18 +759,18 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.startPrank(settler.pub);
 
         vm.expectEmit(true, false, false, true);
-        emit InvoiceCancelled(sessionKey, "First cancellation");
-        invoiceManager.cancelInvoice(sessionKey, "First cancellation");
+        emit InvoiceCancelled(sessionKey.pub, "First cancellation");
+        invoiceManager.cancelInvoice(sessionKey.pub, "First cancellation");
 
         vm.expectEmit(true, false, false, true);
-        emit InvoiceCancelled(sessionKey2, "Second cancellation");
-        invoiceManager.cancelInvoice(sessionKey2, "Second cancellation");
+        emit InvoiceCancelled(sessionKey2.pub, "Second cancellation");
+        invoiceManager.cancelInvoice(sessionKey2.pub, "Second cancellation");
 
         vm.stopPrank();
 
         // Verify both are cancelled
-        assertFalse(invoiceManager.invoiceExists(sessionKey), "First invoice should be deleted");
-        assertFalse(invoiceManager.invoiceExists(sessionKey2), "Second invoice should be deleted");
+        assertFalse(invoiceManager.invoiceExists(sessionKey.pub), "First invoice should be deleted");
+        assertFalse(invoiceManager.invoiceExists(sessionKey2.pub), "Second invoice should be deleted");
     }
 
     function test_cancelInvoice_revertIf_invoiceNotFound() public withSetupInvoiceManager {
@@ -967,14 +966,14 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
     function test_onboardSolver_revertIf_invalidSolverAddress() public withSetupInvoiceManager {
         vm.prank(solverManager.pub);
-        _toRevert(InvoiceManager.IM_InvalidAddress.selector, hex"");
+        _toRevert(SolverManager.SM_InvalidAddress.selector, hex"");
         invoiceManager.onboardSolver(address(0), "Test Solver", DEFAULT_FEE_AMOUNT);
     }
 
     function test_onboardSolver_revertIf_solverAlreadyActive() public withOnboardedSolvers {
         // Try to onboard solver again
         vm.prank(solverManager.pub);
-        _toRevert(InvoiceManager.IM_SolverAlreadyExists.selector, hex"");
+        _toRevert(SolverManager.SM_SolverAlreadyExists.selector, hex"");
         invoiceManager.onboardSolver(solver.pub, "Duplicate Solver", DEFAULT_FEE_AMOUNT);
     }
 
@@ -1049,7 +1048,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
     function test_offboardSolver_revertIf_invalidAddress() public withSetupInvoiceManager {
         vm.prank(solverManager.pub);
-        _toRevert(InvoiceManager.IM_InvalidSolver.selector, hex"");
+        _toRevert(SolverManager.SM_InvalidSolver.selector, hex"");
         invoiceManager.offboardSolver(address(0));
     }
 
@@ -1126,11 +1125,11 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         // Create new invoice - should use new fee
         vm.startPrank(credibleAccount.pub);
         bytes memory createInvoiceData = _createInvoiceData(address(scw2), sessionKey2.pub, solver.pub, SECOND_BID_HASH);
-        address newSessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
 
         // New invoice should use updated fee
-        (InvoiceManager.Invoice memory newInvoice,) = invoiceManager.getInvoice(newSessionKey);
+        (InvoiceManager.Invoice memory newInvoice,) = invoiceManager.getInvoice(sessionKey2.pub);
         assertEq(newInvoice.pulseFee, newFee, "New invoice should use updated fee");
     }
 
@@ -1142,13 +1141,13 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
     function test_updateSolverFee_revertIf_solverNotActive() public withSetupInvoiceManager {
         vm.prank(feeManager.pub);
-        _toRevert(InvoiceManager.IM_InvalidSolver.selector, hex"");
+        _toRevert(SolverManager.SM_InvalidSolver.selector, hex"");
         invoiceManager.updateSolverFee(solver.pub, LOW_FEE_AMOUNT);
     }
 
     function test_updateSolverFee_revertIf_invalidAddress() public withSetupInvoiceManager {
         vm.prank(feeManager.pub);
-        _toRevert(InvoiceManager.IM_InvalidSolver.selector, hex"");
+        _toRevert(SolverManager.SM_InvalidSolver.selector, hex"");
         invoiceManager.updateSolverFee(address(0), LOW_FEE_AMOUNT);
     }
 
@@ -1159,7 +1158,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
         // Try to update fee of offboarded solver
         vm.prank(feeManager.pub);
-        _toRevert(InvoiceManager.IM_InvalidSolver.selector, hex"");
+        _toRevert(SolverManager.SM_InvalidSolver.selector, hex"");
         invoiceManager.updateSolverFee(solver.pub, LOW_FEE_AMOUNT);
     }
 
@@ -1208,12 +1207,12 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
         bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH);
 
-        address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
 
         bytes memory createInvoiceData2 =
             _createInvoiceData(address(scw2), sessionKey2.pub, solver.pub, SECOND_BID_HASH);
 
-        address sessionKey2 = invoiceManager.createInvoice(createInvoiceData2);
+        invoiceManager.createInvoice(createInvoiceData2);
 
         vm.stopPrank();
 
@@ -1224,8 +1223,8 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         bool foundFirst = false;
         bool foundSecond = false;
         for (uint256 i; i < invoices.length; ++i) {
-            if (invoices[i] == sessionKey) foundFirst = true;
-            if (invoices[i] == sessionKey2) foundSecond = true;
+            if (invoices[i] == sessionKey.pub) foundFirst = true;
+            if (invoices[i] == sessionKey2.pub) foundSecond = true;
         }
         assertTrue(foundFirst, "First invoice should be found");
         assertTrue(foundSecond, "Second invoice should be found");
@@ -1259,24 +1258,24 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.startPrank(credibleAccount.pub);
 
         bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH);
-        address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
 
         bytes memory createInvoiceData2 =
             _createInvoiceData(address(scw2), sessionKey2.pub, solver2.pub, SECOND_BID_HASH);
 
-        address sessionKey2 = invoiceManager.createInvoice(createInvoiceData2);
+        invoiceManager.createInvoice(createInvoiceData2);
 
         vm.stopPrank();
 
         // Check solver invoices
         address[] memory solverInvoices = invoiceManager.getSolverInvoices(solver.pub);
         assertEq(solverInvoices.length, 1, "Solver 1 should have one invoice");
-        assertEq(solverInvoices[0], sessionKey, "Solver 1 invoice should match");
+        assertEq(solverInvoices[0], sessionKey.pub, "Solver 1 invoice should match");
 
         // Check solver2 invoices
         address[] memory solver2Invoices = invoiceManager.getSolverInvoices(solver2.pub);
         assertEq(solver2Invoices.length, 1, "Solver 2 should have one invoice");
-        assertEq(solver2Invoices[0], sessionKey2, "Solver 2 invoice should match");
+        assertEq(solver2Invoices[0], sessionKey2.pub, "Solver 2 invoice should match");
     }
 
     function test_getSolverInvoices_success_dataCleared() public withSampleInvoice {
@@ -1425,7 +1424,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.startPrank(credibleAccount.pub);
         bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH);
 
-        _toRevert(InvoiceManager.IM_SolverInactive.selector, hex"");
+        _toRevert(SolverManager.SM_SolverInactive.selector, hex"");
         invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
     }
@@ -1438,7 +1437,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
     function test_toggleSolverStatus_revertIf_invalidSolver() public withSetupInvoiceManager {
         vm.prank(solverManager.pub);
-        _toRevert(InvoiceManager.IM_InvalidSolver.selector, hex"");
+        _toRevert(SolverManager.SM_InvalidSolver.selector, hex"");
         invoiceManager.toggleSolverStatus(address(0));
     }
 
@@ -1476,10 +1475,10 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         // Create invoice without minting tokens to contract
         vm.startPrank(credibleAccount.pub);
         bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH);
-        address sessionKey = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
         vm.stopPrank();
 
-        bool settleable = invoiceManager.isInvoiceSettleable(sessionKey);
+        bool settleable = invoiceManager.isInvoiceSettleable(sessionKey.pub);
         assertFalse(settleable, "Invoice should not be settleable without sufficient balance");
     }
 
@@ -1564,13 +1563,13 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
     function test_addTokenToWhitelist_revertIf_invalidAddress() public withSetupInvoiceManager {
         vm.prank(deployer.pub);
-        _toRevert(InvoiceManager.IM_InvalidAddress.selector, hex"");
+        _toRevert(TokenManager.TM_InvalidAddress.selector, hex"");
         invoiceManager.addTokenToWhitelist(address(0));
     }
 
     function test_addTokenToWhitelist_revertIf_tokenAlreadyWhitelisted() public withSetupInvoiceManager {
         vm.prank(deployer.pub);
-        _toRevert(InvoiceManager.IM_TokenAlreadyWhitelisted.selector, abi.encode(address(testUSDC)));
+        _toRevert(TokenManager.TM_TokenAlreadyWhitelisted.selector, abi.encode(address(testUSDC)));
         invoiceManager.addTokenToWhitelist(address(testUSDC));
     }
 
@@ -1588,7 +1587,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         address nonWhitelistedToken = makeAddr("nonWhitelistedToken");
 
         vm.prank(deployer.pub);
-        _toRevert(InvoiceManager.IM_TokenNotWhitelisted.selector, abi.encode(nonWhitelistedToken));
+        _toRevert(TokenManager.TM_TokenNotWhitelisted.selector, abi.encode(nonWhitelistedToken));
         invoiceManager.removeTokenFromWhitelist(nonWhitelistedToken);
     }
 

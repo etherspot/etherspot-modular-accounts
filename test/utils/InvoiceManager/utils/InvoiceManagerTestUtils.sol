@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IInvoiceManager} from "../../../../src/interfaces/IInvoiceManager.sol";
-import {InvoiceManager} from "../../../../src/utils/InvoiceManager.sol";
+import {InvoiceManager} from "../../../../src/invoice_manager/InvoiceManager.sol";
 import {TestERC20} from "../../../../src/test/TestERC20.sol";
 import {TestUSDC} from "../../../../src/test/TestUSDC.sol";
 import {TokenData} from "../../../../src/common/Structs.sol";
@@ -179,11 +179,11 @@ contract InvoiceManagerTestUtils is ModularTestBase {
 
         bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH);
 
-        sessionKey_ = invoiceManager.createInvoice(createInvoiceData);
+        invoiceManager.createInvoice(createInvoiceData);
 
         vm.stopPrank();
 
-        return sessionKey_;
+        return sessionKey.pub;
     }
 
     function _mintTokensToInvoiceManager() internal {
@@ -266,7 +266,8 @@ contract InvoiceManagerTestUtils is ModularTestBase {
 
             bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey, solver.pub, bidHash);
 
-            sessionKeys[i] = invoiceManager.createInvoice(createInvoiceData);
+            invoiceManager.createInvoice(createInvoiceData);
+            sessionKeys[i] = sessionKey;
         }
 
         vm.stopPrank();
