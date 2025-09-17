@@ -43,6 +43,8 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
     error SM_SolverAlreadyExists();
     error SM_InvalidAddress();
     error SM_SolverInactive();
+    error SM_SolverCannotSettle();
+    error SM_SolverHasPendingInvoices();
 
     /*//////////////////////////////////////////////////////////////
                         SOLVER MANAGEMENT FUNCTIONS
@@ -66,6 +68,7 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
 
         solver.solverAddress = _solver;
         solver.isActive = true;
+        solver.pendingOffboard = false;
         solver.successfulSettlements = 0;
         solver.pulseFee = _pulseFee; // 0 = use default calculated fee, >0 = use custom fee
         solver.name = _name;
@@ -94,30 +97,25 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
      * @notice Removes a solver from the system and cleans up associated data
      * @param _solver Address of the solver to remove
      * @dev Only callable by addresses with SOLVER_MANAGER_ROLE
-     * @dev Deletes solver data and associated invoice mappings
+     * @dev Will mark as pendingOffboard if solver has outstanding invoices
+     * @dev If solver has no outstanding invoices, deletes solver data and associated invoice mappings
      */
     function offboardSolver(address _solver) external onlyRole(SOLVER_MANAGER_ROLE) {
         if (solvers[_solver].solverAddress == address(0)) revert SM_InvalidSolver();
 
-        delete solverInvoices[_solver];
-        delete solvers[_solver];
+        uint256 pendingInvoices = solverInvoices[_solver].length();
 
-        emit SolverOffboarded(_solver);
-    }
-
-    /**
-     * @notice Toggles the active status of a solver between active and inactive
-     * @param _solver Address of the solver to toggle
-     * @dev Only callable by addresses with SOLVER_MANAGER_ROLE
-     * @dev Inactive solvers cannot have new invoices created for them
-     */
-    function toggleSolverStatus(address _solver) external onlyRole(SOLVER_MANAGER_ROLE) {
-        Solver storage solver = solvers[_solver];
-        if (solver.solverAddress == address(0)) revert SM_InvalidSolver();
-
-        solver.isActive = !solver.isActive;
-
-        emit SolverStatusToggled(_solver, solver.isActive);
+        if (pendingInvoices > 0) {
+            // Marked as pending offboard (can't accept new invoices)
+            solvers[_solver].isActive = false;
+            solvers[_solver].pendingOffboard = true;
+            emit SolverMarkedForOffboarding(_solver, pendingInvoices);
+        } else {
+            // Complete removal (no pending invoices)
+            delete solverInvoices[_solver];
+            delete solvers[_solver];
+            emit SolverOffboarded(_solver);
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -129,6 +127,7 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
      * @param _solver Address of the solver to query
      * @return name Human-readable name of the solver
      * @return isActive Whether the solver is currently active
+     * @return pendingOffboard Where the solver is being offboarded but has active invoices
      * @return successfulSettlements Number of invoices successfully settled
      * @return activeInvoices Number of currently active invoices
      * @return pulseFee Current fee setting in cents
@@ -139,6 +138,7 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
         returns (
             string memory name,
             bool isActive,
+            bool pendingOffboard,
             uint256 successfulSettlements,
             uint256 activeInvoices,
             uint256 pulseFee
@@ -148,6 +148,7 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
         return (
             solver.name,
             solver.isActive,
+            solver.pendingOffboard,
             solver.successfulSettlements,
             solverInvoices[_solver].length(),
             solver.pulseFee
@@ -225,6 +226,16 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
      */
     function _isSolverActive(address _solver) internal view returns (bool) {
         return solvers[_solver].isActive;
+    }
+
+    /**
+     * @notice Internal function to check if solver can settle invoices
+     * @param _solver Solver address
+     * @return True if solver is pending offboard or is active
+     */
+    function _canSolverSettle(address _solver) internal view returns (bool) {
+        Solver memory solver = solvers[_solver];
+        return solver.isActive || solver.pendingOffboard; // Can settle if active OR pending offboard
     }
 
     /*//////////////////////////////////////////////////////////////

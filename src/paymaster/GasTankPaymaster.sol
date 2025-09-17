@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import {ECDSA} from "solady/src/utils/ECDSA.sol";
+import {AggregatorV2V3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV2V3Interface.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -39,6 +40,8 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     string private constant NAME = "GasTankPaymaster";
     /// @notice Denominator used for price calculations (1e26 for high precision)
     uint256 public constant PRICE_DENOMINATOR = 1e26;
+    /// @notice Grace period after sequencer comes back online
+    uint256 private constant SEQUENCER_GRACE_PERIOD = 3600; // 1 hour
 
     /*//////////////////////////////////////////////////////////////
                             STATE VARIABLES
@@ -61,6 +64,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
      * @notice Configuration struct for the paymaster
      * @param tokenUsdFeed Oracle for token/USD price feed
      * @param nativeUsdFeed Oracle for native token/USD price feed
+     * @param sequencerUptimeFeed Oracle sequencer uptime feed
      * @param minEPBalance Minimum ETH balance to maintain in EntryPoint
      * @param cachedPriceTimestamp Timestamp of the last price update
      * @param tokenMaxAge Maximum age of token cached price before it's considered stale
@@ -69,10 +73,12 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
      * @param cachedTokenPrice Cached token price to avoid frequent oracle calls
      * @param markup Price markup applied to oracle prices (in PRICE_DENOMINATOR units)
      * @param minVSTokenBalance Minimum token balance required for verifying signer to attempt top-up
+     * @param stalePriceMarkup Markup applied when cached price is stale and new price cannot be fetched
      */
     struct GasTankPaymasterConfig {
         IOracle tokenUsdFeed;
         IOracle nativeUsdFeed;
+        AggregatorV2V3Interface sequencerUptimeFeed;
         uint128 minEPBalance;
         uint48 cachedPriceTimestamp;
         uint48 tokenMaxAge;
@@ -81,6 +87,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         uint256 cachedTokenPrice;
         uint256 markup;
         uint256 minFeeReceiverTokenBalance;
+        uint256 stalePriceMarkup;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -89,6 +96,8 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
 
     /// @notice Mapping of wallet addresses to their token balances
     mapping(address wallet => uint256 balance) private balances;
+    /// @notice Mapping of wallet addresses to reserved token amounts for pending repayments
+    mapping(address wallet => uint256 reservedAmount) private reservedForRepayment;
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -122,10 +131,15 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         uint256 actualChargeNative,
         uint256 preChargeNative,
         uint256 indexed chainId,
-        bool opReverted
+        bool opReverted,
+        uint256 tokenPriceUsed,
+        uint256 estimatedTokenCost,
+        bool priceWasStale
     );
     /// @notice Emitted when a sponsored transaction is repaid
     event GasTankPaymaster_RepaySponsoredTransaction(address indexed from, uint256 amount);
+    /// @notice Emitted when tokens are reserved for pending repayment
+    event GasTankPaymaster_TokensReserved(address indexed user, uint256 amount);
     /// @notice Emitted when balance is insufficient but top-up is required
     event GasTankPaymaster_InsufficientBalanceButTopUpRequired(uint256 currentBalance, uint256 minRequired);
     /// @notice Emitted when EntryPoint top-up is executed successfully
@@ -152,6 +166,12 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     event GasTankPaymaster_NativeWithdrawn(address indexed to, uint256 amount);
     /// @notice Emitted when wrapped native is withdrawn
     event GasTankPaymaster_WrappedNativeWithdrawn(address indexed to, uint256 amount);
+    /// @notice Emitted when sequencer is down
+    event GasTankPaymaster_SequencerDown();
+    /// @notice Emitted when sequencer grace period is active
+    event GasTankPaymaster_SequencerGracePeriodActive(uint256 timeSinceUp);
+    /// @notice Emitted when stale price markup is updated
+    event GasTankPaymaster_StalePriceMarkupUpdated(uint256 oldMarkup, uint256 newMarkup);
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -159,6 +179,8 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
 
     /// @notice Thrown when contract is paused
     error GasTankPaymaster_IsPaused();
+    /// @notice Thrown when contract is not paused
+    error GasTankPaymaster_IsNotPaused();
     /// @notice Thrown when price markup is too high
     error GasTankPaymaster_PriceMarkupTooHigh(uint256 markup);
     /// @notice Thrown when price markup is too low
@@ -181,9 +203,20 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     error GasTankPaymaster_CannotRecoverWETH();
     /// @notice Thrown when attempting to set an invalid minimum top-up balance
     error GasTankPaymaster_InvalidFeeReceiverMinimumTopupBalance();
+    ///@notice Thrown when withdraw of native fails
+    error GasTankPaymaster_FailedNativeTransfer(address to, uint256 amount);
+    /// @notice Thrown when stale price markup is invalid
+    error GasTankPaymaster_InvalidStalePriceMarkup(uint256 markup);
+
     /*//////////////////////////////////////////////////////////////
                                 MODIFIERS
     //////////////////////////////////////////////////////////////*/
+
+    /// @notice Ensures contract is paused
+    modifier whenPaused() {
+        if (!paused) revert GasTankPaymaster_IsNotPaused();
+        _;
+    }
 
     /// @notice Ensures contract is not paused
     modifier whenNotPaused() {
@@ -263,6 +296,10 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         if (_paymasterConfig.markup < PRICE_DENOMINATOR) {
             revert GasTankPaymaster_PriceMarkupTooLow(_paymasterConfig.markup);
         }
+        // Validate stale price markup (allow 100% to 200% = no markup to 100% markup)
+        if (_paymasterConfig.stalePriceMarkup > 200 || _paymasterConfig.stalePriceMarkup < 100) {
+            revert GasTankPaymaster_InvalidStalePriceMarkup(_paymasterConfig.stalePriceMarkup);
+        }
         paymasterConfig = _paymasterConfig;
         emit GasTankPaymaster_PaymasterConfigUpdated(_paymasterConfig);
     }
@@ -295,7 +332,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
      * @dev Only callable by the owner
      * @param _feeReceiver New fee receiver address
      */
-    function setFeeReceiver(address payable _feeReceiver) external onlyOwner {
+    function setFeeReceiver(address payable _feeReceiver) external onlyOwner whenPaused {
         if (_feeReceiver == address(0)) revert GasTankPaymaster_InvalidAddress();
         feeReceiver = _feeReceiver;
         emit GasTankPaymaster_FeeReceiverUpdated(_feeReceiver);
@@ -307,9 +344,36 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
      */
     function setSwapRouter(ISwapRouter _swapRouter) external onlyOwner {
         if (address(_swapRouter) == address(0)) revert GasTankPaymaster_InvalidAddress();
+        // Revoke approval from old router if it exists
+        if (address(uniswap) != address(0)) {
+            token.approve(address(uniswap), 0);
+        }
         uniswap = _swapRouter;
         token.approve(address(uniswap), type(uint256).max);
         emit GasTankPaymaster_SwapRouterUpdated(address(_swapRouter));
+    }
+
+    /**
+     * @notice Updates the sequencer uptime feed address
+     * @dev Only callable by the owner. Set to address(0) for non-L2 chains
+     * @param _sequencerUptimeFeed New sequencer uptime feed address
+     */
+    function setSequencerUptimeFeed(AggregatorV2V3Interface _sequencerUptimeFeed) external onlyOwner {
+        paymasterConfig.sequencerUptimeFeed = _sequencerUptimeFeed;
+        emit GasTankPaymaster_PaymasterConfigUpdated(paymasterConfig);
+    }
+
+    /**
+     * @notice Updates the stale price markup
+     * @param _stalePriceMarkup New markup percentage (100 = no markup, 120 = 20% markup)
+     */
+    function setStalePriceMarkup(uint256 _stalePriceMarkup) external onlyOwner {
+        if (_stalePriceMarkup > 200 || _stalePriceMarkup < 100) {
+            revert GasTankPaymaster_InvalidStalePriceMarkup(_stalePriceMarkup);
+        }
+        uint256 oldMarkup = paymasterConfig.stalePriceMarkup;
+        paymasterConfig.stalePriceMarkup = _stalePriceMarkup;
+        emit GasTankPaymaster_StalePriceMarkupUpdated(oldMarkup, _stalePriceMarkup);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -320,7 +384,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
      * @notice Deposits tokens into the sender's gas tank
      * @param _amount Amount of tokens to deposit
      */
-    function gasTankDeposit(uint256 _amount) external {
+    function gasTankDeposit(uint256 _amount) external whenNotPaused {
         if (_amount == 0) revert GasTankPaymaster_InvalidAmount();
         SafeERC20.safeTransferFrom(token, msg.sender, address(this), _amount);
         balances[msg.sender] += _amount;
@@ -332,7 +396,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
      * @param _wallet Target wallet address
      * @param _amount Amount of tokens to deposit
      */
-    function gasTankDeposit(address _wallet, uint256 _amount) external {
+    function gasTankDeposit(address _wallet, uint256 _amount) external whenNotPaused {
         if (_wallet == address(0)) revert GasTankPaymaster_InvalidAddress();
         if (_amount == 0) revert GasTankPaymaster_InvalidAmount();
         SafeERC20.safeTransferFrom(token, msg.sender, address(this), _amount);
@@ -343,20 +407,48 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     /**
      * @notice Withdraws tokens from the sender's gas tank
      * @param _amount Amount of tokens to withdraw
+     * @dev If user has pending repayments, then only the unassigned balance can be withdrawn
      */
     function gasTankWithdraw(uint256 _amount) external {
         uint256 currentBalance = balances[msg.sender];
-        if (currentBalance < _amount) revert GasTankPaymaster_InsufficientBalance(msg.sender, _amount);
+        uint256 reserved = reservedForRepayment[msg.sender];
+        uint256 availableBalance = currentBalance > reserved ? currentBalance - reserved : 0;
+        if (availableBalance < _amount) {
+            revert GasTankPaymaster_InsufficientBalance(msg.sender, _amount);
+        }
         SafeERC20.safeTransfer(token, msg.sender, _amount);
         balances[msg.sender] = currentBalance - _amount; // Safe due to check above
         emit GasTankPaymaster_Withdrawn(msg.sender, _amount);
     }
 
     /**
-     * @notice Transfers tokens from a user's gas tank to the verifying signer's balance
+     * @notice Returns the available (non-reserved) gas tank balance for a specific wallet
+     * @param _wallet Wallet address to check
+     * @return Available token balance after accounting for reservations
+     */
+    function gasTankAvailableBalance(address _wallet) external view returns (uint256) {
+        uint256 balance = balances[_wallet];
+        uint256 reserved = reservedForRepayment[_wallet];
+        return balance > reserved ? balance - reserved : 0;
+    }
+
+    /**
+     * @notice Returns the reserved amount for a specific wallet
+     * @param _wallet Wallet address to check
+     * @return Amount of tokens reserved for pending repayments
+     */
+    function getReservedAmount(address _wallet) external view returns (uint256) {
+        return reservedForRepayment[_wallet];
+    }
+
+    /**
+     * @notice Transfers tokens from a user's gas tank to the fee receiver's balance
      * @dev Only callable by the owner to collect payment for sponsored transactions
+     * @dev Reduces the reserved token amount by the repaid amount to allow user withdrawals
+     * @dev If repayment amount exceeds reserved amount, reservation is cleared completely
+     * @dev This function supports partial repayments and multiple pending transactions
      * @param _from Address to transfer tokens from
-     * @param _amount Amount of tokens to transfer
+     * @param _amount Amount of tokens to transfer as repayment
      */
     function repaySponsoredTransaction(address _from, uint256 _amount) external onlyOwner {
         if (_from == address(0)) revert GasTankPaymaster_InvalidAddress();
@@ -364,6 +456,13 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         if (balances[_from] < _amount) revert GasTankPaymaster_InsufficientBalance(_from, _amount);
         balances[_from] -= _amount;
         balances[feeReceiver] += _amount;
+        // Reduce reservation by the repaid amount (but don't go below 0)
+        uint256 currentReserved = reservedForRepayment[_from];
+        if (currentReserved >= _amount) {
+            reservedForRepayment[_from] = currentReserved - _amount;
+        } else {
+            reservedForRepayment[_from] = 0;
+        }
         emit GasTankPaymaster_RepaySponsoredTransaction(_from, _amount);
     }
 
@@ -388,15 +487,24 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     function updateCachedPrice(bool force) public returns (uint256) {
         GasTankPaymasterConfig storage gtpConfig = paymasterConfig;
         uint256 cacheAge = block.timestamp - gtpConfig.cachedPriceTimestamp;
-        if (!force && cacheAge <= gtpConfig.nativeMaxAge && gtpConfig.cachedTokenPrice > 0) {
+        if (
+            !force && cacheAge <= gtpConfig.nativeMaxAge && cacheAge <= gtpConfig.tokenMaxAge
+                && gtpConfig.cachedTokenPrice > 0
+        ) {
             return gtpConfig.cachedTokenPrice;
+        }
+        // Check sequencer status before fetching fresh prices
+        if (!_isSequencerUp()) {
+            emit GasTankPaymaster_OracleUpdateFailed();
+            return 0; // Return 0 to signal failure
         }
         // Try to get and validate prices
         (bool success, uint256 newPrice) = _tryGetFreshPrice(gtpConfig);
         if (success) {
+            uint256 previousPrice = gtpConfig.cachedTokenPrice;
             gtpConfig.cachedTokenPrice = newPrice;
             gtpConfig.cachedPriceTimestamp = uint48(block.timestamp);
-            emit GasTankPaymaster_TokenPriceUpdated(newPrice, 0, gtpConfig.cachedPriceTimestamp);
+            emit GasTankPaymaster_TokenPriceUpdated(newPrice, previousPrice, gtpConfig.cachedPriceTimestamp);
             return newPrice;
         } else {
             emit GasTankPaymaster_OracleUpdateFailed();
@@ -414,6 +522,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
      * @param requiredPreFund Required prefund amount
      * @return context Encoded context for post-operation processing
      * @return validationData Validation result and timing data
+     * @dev Rejects users with pending repayments to prevent withdrawal escape attacks
      */
     function _validatePaymasterUserOp(
         PackedUserOperation calldata userOp,
@@ -433,7 +542,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         // Calculate comprehensive charge information
         uint256 maxFeePerGas = userOp.unpackMaxFeePerGas();
         uint256 refundPostopCost = paymasterConfig.postOpCost;
-        if (refundPostopCost >= userOp.unpackPostOpGasLimit()) {
+        if (refundPostopCost > userOp.unpackPostOpGasLimit()) {
             revert GasTankPaymaster_PostOpGasLimitTooLow();
         }
         uint256 preChargeNative = requiredPreFund + (refundPostopCost * maxFeePerGas);
@@ -448,6 +557,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
      * @param context Encoded context from validation phase
      * @param actualGasCost Actual gas cost of the operation
      * @param actualUserOpFeePerGas Actual fee per gas used
+     * @dev Pauses withdrawals for the user until repayment is collected via repaySponsoredTransaction
      */
     function _postOp(PostOpMode mode, bytes calldata context, uint256 actualGasCost, uint256 actualUserOpFeePerGas)
         internal
@@ -455,21 +565,39 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     {
         (address userOpSender, uint256 preChargeNative) = abi.decode(context, (address, uint256));
         uint256 priceForTopUp;
-        // Try to get fresh price
+        bool usingStaleCache = false;
+
+        // Try to get fresh price for EntryPoint top-up
         try this.updateCachedPrice(false) returns (uint256 freshPrice) {
             if (freshPrice > 0) {
                 priceForTopUp = freshPrice;
+                // Fresh price obtained - no stale cache usage
             } else {
                 priceForTopUp = paymasterConfig.cachedTokenPrice;
+                // Using cached price - check if it's stale
+                usingStaleCache = _isCachedPriceStale();
             }
         } catch {
             priceForTopUp = paymasterConfig.cachedTokenPrice;
+            // Using cached price due to oracle failure - check if it's stale
+            usingStaleCache = _isCachedPriceStale();
         }
+
+        // Calculate total gas cost in native currency (wei)
+        uint256 totalGasCostWei = actualGasCost + (paymasterConfig.postOpCost * actualUserOpFeePerGas);
+
+        // Calculate reservation using direct USD-based approach
+        uint256 estimatedTokenCost = _calculateTokenReservation(totalGasCostWei, usingStaleCache);
+
+        // Reserve the calculated amount
+        if (estimatedTokenCost > 0) {
+            reservedForRepayment[userOpSender] += estimatedTokenCost;
+            emit GasTankPaymaster_TokensReserved(userOpSender, estimatedTokenCost);
+        }
+
         // Top up EntryPoint if required
         _topUpEntryPointDeposit(priceForTopUp);
         bool opReverted = mode == PostOpMode.opReverted;
-        // Calculate total gas cost in native currency (wei)
-        uint256 totalGasCostWei = actualGasCost + (paymasterConfig.postOpCost * actualUserOpFeePerGas);
         emit GasTankPaymaster_UserOperationSponsored(
             userOpSender,
             feeReceiver,
@@ -477,7 +605,10 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
             actualGasCost + paymasterConfig.postOpCost * actualUserOpFeePerGas,
             preChargeNative,
             block.chainid,
-            opReverted
+            opReverted,
+            priceForTopUp, // tokenPriceUsed for top-up
+            estimatedTokenCost, // reserved token amount
+            usingStaleCache // is the cached price stale?
         );
     }
 
@@ -626,6 +757,19 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         signature_ = paymasterAndData[64:];
     }
 
+    /**
+     * @notice Returns the current sequencer status
+     * @return isUp Whether sequencer is up and grace period has passed
+     * @return hasSequencerFeed Whether a sequencer feed is configured
+     */
+    function getSequencerStatus() external view returns (bool isUp, bool hasSequencerFeed) {
+        hasSequencerFeed = address(paymasterConfig.sequencerUptimeFeed) != address(0);
+        if (!hasSequencerFeed) {
+            return (true, false); // No sequencer feed means mainnet/L1
+        }
+        isUp = _isSequencerUp();
+    }
+
     /*//////////////////////////////////////////////////////////////
                             INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -694,18 +838,102 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
                     emit GasTankPaymaster_StaleTokenPrice();
                     return (false, 0);
                 }
-                // Calculate price: (tokenUSD / nativeUSD) * PRICE_DENOMINATOR
+                // Calculate base price: (tokenUSD / nativeUSD) * PRICE_DENOMINATOR
                 // Adjusting for different oracle decimal places
-                uint256 newPrice = (
+                uint256 basePrice = (
                     uint256(tokenUsdPrice) * (10 ** gtpConfig.nativeUsdFeed.decimals()) * PRICE_DENOMINATOR
                 ) / (uint256(nativeUsdPrice) * (10 ** gtpConfig.tokenUsdFeed.decimals()));
-                return (true, newPrice);
+
+                // Return base price WITHOUT markup - markup should be applied only for user charges, not top-ups
+                return (true, basePrice);
             } catch {
                 return (false, 0);
             }
         } catch {
             return (false, 0);
         }
+    }
+
+    /**
+     * @notice Checks if the L2 sequencer is up and not in grace period
+     * @return isSequencerUp Whether the sequencer is operational and grace period has passed
+     */
+    function _isSequencerUp() private view returns (bool isSequencerUp) {
+        AggregatorV2V3Interface sequencerFeed = paymasterConfig.sequencerUptimeFeed;
+
+        // If no sequencer feed is configured (mainnet/other L1s), assume it's up
+        if (address(sequencerFeed) == address(0)) {
+            return true;
+        }
+
+        try sequencerFeed.latestRoundData() returns (
+            uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound
+        ) {
+            // Check if sequencer is up (answer == 0 means up, 1 means down)
+            bool isUp = answer == 0;
+
+            if (!isUp) {
+                return false;
+            }
+
+            // Check grace period - ensure enough time has passed since sequencer came back up
+            // Protect against underflow in case startedAt is in the future
+            if (startedAt > block.timestamp) {
+                return false; // If startedAt is in future, assume not ready
+            }
+            uint256 timeSinceUp = block.timestamp - startedAt;
+            if (timeSinceUp <= SEQUENCER_GRACE_PERIOD) {
+                return false;
+            }
+
+            return true;
+        } catch {
+            // If sequencer feed fails, be conservative and assume it's down
+            return false;
+        }
+    }
+
+    function _isCachedPriceStale() private view returns (bool) {
+        uint256 cacheAge = block.timestamp - paymasterConfig.cachedPriceTimestamp;
+        return (cacheAge >= paymasterConfig.tokenMaxAge || cacheAge >= paymasterConfig.nativeMaxAge);
+    }
+
+    function _calculateTokenReservation(uint256 totalGasCostWei, bool usingStaleCache) private view returns (uint256) {
+        // Get oracle prices directly
+        try paymasterConfig.nativeUsdFeed.latestRoundData() returns (
+            uint80, int256 nativePrice, uint256, uint256, uint80
+        ) {
+            try paymasterConfig.tokenUsdFeed.latestRoundData() returns (
+                uint80, int256 tokenPrice, uint256, uint256, uint80
+            ) {
+                if (nativePrice > 0 && tokenPrice > 0) {
+                    // Calculate gas cost in USD
+                    // totalGasCostWei * nativePrice (USD per ETH) / (1e18 * 10^nativeOracleDecimals)
+                    uint256 gasCostUsd = (totalGasCostWei * uint256(nativePrice))
+                        / (1e18 * (10 ** paymasterConfig.nativeUsdFeed.decimals()));
+
+                    // Apply buffer only if using stale cached price
+                    if (usingStaleCache) {
+                        gasCostUsd = gasCostUsd * paymasterConfig.stalePriceMarkup / 100;
+                    }
+
+                    // Convert USD to token units
+                    // gasCostUsd * 10^(tokenDecimals + tokenOracleDecimals) / tokenPrice
+                    uint8 tokenDecimals = IERC20Metadata(address(token)).decimals();
+                    uint256 tokensToReserve = (
+                        gasCostUsd * (10 ** (tokenDecimals + paymasterConfig.tokenUsdFeed.decimals()))
+                    ) / uint256(tokenPrice);
+
+                    // Apply markup to user
+                    tokensToReserve = tokensToReserve * paymasterConfig.markup / PRICE_DENOMINATOR;
+
+                    return tokensToReserve;
+                }
+            } catch {}
+        } catch {}
+
+        // Fallback: if oracle calls fail, return 0 (no reservation)
+        return 0;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -738,7 +966,8 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         uint256 nativeBalance = address(this).balance;
         uint256 wNativeBalance = wrappedNative.balanceOf(address(this));
         if (nativeBalance > 0) {
-            _to.transfer(nativeBalance);
+            (bool success,) = _to.call{value: nativeBalance}("");
+            if (!success) revert GasTankPaymaster_FailedNativeTransfer(_to, nativeBalance);
             emit GasTankPaymaster_NativeWithdrawn(_to, nativeBalance);
         }
         if (wNativeBalance > 0) {

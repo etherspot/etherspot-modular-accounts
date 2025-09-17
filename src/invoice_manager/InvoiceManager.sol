@@ -55,7 +55,6 @@ contract InvoiceManager is IInvoiceManager, SolverManager, TokenManager, Reentra
     error IM_InsufficientContractBalance(address token, uint256 requiredAmount, uint256 availableBalance);
     error IM_InvalidChainId(uint256 chainId);
     error IM_TokenNotFoundInInvoice(address sessionKey, address token);
-    error IM_TokenAlreadyCredited(address sessionKey, address token);
     error IM_TokenAmountMismatch(address sessionKey, address token, uint256 expected, uint256 actual);
     error IM_TokenOverCredited(address sessionKey, address token, uint256 expected, uint256 attempted);
     error IM_InvoiceNotFullyCredited(address sessionKey, address token, uint256 expected, uint256 credited);
@@ -150,7 +149,7 @@ contract InvoiceManager is IInvoiceManager, SolverManager, TokenManager, Reentra
 
         bytes32 bidHash = invoice.data.bidHash;
         address solver = invoice.data.solver;
-        if (!_isSolverActive(solver)) revert SM_SolverInactive();
+        if (!_canSolverSettle(solver)) revert SM_SolverCannotSettle();
 
         InvoiceTokenData[] storage tokens = invoiceTokenData[_sessionKey];
         uint256 tokensLength = tokens.length;
@@ -175,6 +174,12 @@ contract InvoiceManager is IInvoiceManager, SolverManager, TokenManager, Reentra
         delete invoices[_sessionKey];
         delete invoiceTokenData[_sessionKey];
         _removeSolverInvoice(solver, _sessionKey);
+
+        // Remove solver if required
+        if (solvers[solver].pendingOffboard && solverInvoices[solver].length() == 0) {
+            delete solvers[solver];
+            emit SolverOffboarded(solver);
+        }
 
         emit InvoiceSettled(_sessionKey, bidHash, solver);
     }
@@ -213,11 +218,8 @@ contract InvoiceManager is IInvoiceManager, SolverManager, TokenManager, Reentra
         if (newCreditedAmount > tokenData[tokenIndex].amount) {
             revert IM_TokenOverCredited(_sessionKey, _token, tokenData[tokenIndex].amount, newCreditedAmount);
         }
-        if (tokenData[tokenIndex].creditedAmount == tokenData[tokenIndex].amount) {
-            revert IM_TokenAlreadyCredited(_sessionKey, _token);
-        }
 
-        // 4. if checks passed then attribute to invoice
+        // Attribute received tokens to invoice
         tokenData[tokenIndex].creditedAmount = newCreditedAmount;
         emit TokensCreditedToInvoice(_sessionKey, _token, _amount);
     }
@@ -358,8 +360,8 @@ contract InvoiceManager is IInvoiceManager, SolverManager, TokenManager, Reentra
     /**
      * @notice Checks if an invoice can be successfully settled
      * @param _sessionKey Session key of the invoice to check
-     * @return True if invoice exists, solver is active, and contract has sufficient token balances
-     * @dev Performs balance checks for all tokens in the invoice
+     * @return True if invoice exists, solver is active, all tokens are fully credited, and contract has sufficient token balances
+     * @dev Performs balance checks and credit verification for all tokens in the invoice
      */
     function isInvoiceSettleable(address _sessionKey) external view returns (bool) {
         Invoice storage invoice = invoices[_sessionKey];
@@ -370,6 +372,11 @@ contract InvoiceManager is IInvoiceManager, SolverManager, TokenManager, Reentra
         uint256 tokenDataLength = tokenData.length;
 
         for (uint256 i; i < tokenDataLength; ++i) {
+            // Check if all tokens have been fully credited
+            if (tokenData[i].creditedAmount != tokenData[i].amount) {
+                return false;
+            }
+            // Check if contract has sufficient balance
             if (IERC20(tokenData[i].token).balanceOf(address(this)) < tokenData[i].amount) {
                 return false;
             }
@@ -500,12 +507,18 @@ contract InvoiceManager is IInvoiceManager, SolverManager, TokenManager, Reentra
         uint256 tokenDataLength = tokenData.length;
         if (tokenDataLength == 0) revert TM_EmptyTokenData();
 
+        // Get solver fee amount for validation
+        uint256 solverPulseFee = _getSolverFeeAmount(solver);
+
         // Check all tokens are whitelisted and amounts are valid
         for (uint256 i; i < tokenDataLength; ++i) {
             if (!_isTokenWhitelisted(tokenData[i].token)) {
                 revert TM_TokenNotWhitelisted(tokenData[i].token);
             }
             if (tokenData[i].amount == 0) revert IM_InvalidTokenAmount();
+            // Check token amount is gt than calculated pulse fee
+            uint256 pulseFee = _calculateFeeForToken(tokenData[i].token, solverPulseFee);
+            if (tokenData[i].amount <= pulseFee) revert IM_InvalidTokenAmount();
         }
 
         // Check for existing invoice

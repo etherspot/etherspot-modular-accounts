@@ -18,6 +18,8 @@ import {IHookMultiPlexer} from "../../interfaces/IHookMultiPlexer.sol";
 import {IInvoiceManager} from "../../interfaces/IInvoiceManager.sol";
 import "../../common/Structs.sol";
 
+import {console2} from "forge-std/console2.sol";
+
 contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using ModeLib for ModeCode;
@@ -60,6 +62,8 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     error CredibleAccountModule_InvalidAmount();
     error CredibleAccountModule_TokenNotFoundForSession(address sessionKey, address token);
     error CredibleAccountModule_TokenAlreadyClaimed(address sessionKey, address token);
+    error CredibleAccountModule_DuplicateToken(address token);
+    error CredibleAccountModule_SessionKeyAlreadyClaimed(address _sessionKey);
 
     /*//////////////////////////////////////////////////////////////
                                MAPPINGS
@@ -83,6 +87,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     uint256 public constant DISABLE_SESSION_KEY_TIME_BUFFER = 30 seconds;
     uint256 constant EXEC_OFFSET = 100;
     bytes32 public constant SESSION_KEY_DISABLER = keccak256("SESSION_KEY_DISABLER");
+    bytes32 public constant ORCHESTRATOR = keccak256("ORCHESTRATOR");
 
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
@@ -98,6 +103,8 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         _grantRole(DEFAULT_ADMIN_ROLE, _owner);
         // Grant SESSION_KEY_DISABLER role to deployer
         _grantRole(SESSION_KEY_DISABLER, _owner);
+        // Grant ORCHESTRATOR to deployer
+        _grantRole(ORCHESTRATOR, _owner);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -111,8 +118,12 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         if (_invoiceManager == address(0)) {
             revert CredibleAccountModule_InvalidInvoiceManager();
         }
+        address current = resourceLockValidator;
         resourceLockValidator = _resourceLockValidator;
+        emit CredibleAccountModule_ResourceLockValidatorUpdated(current, _resourceLockValidator);
+        current = invoiceManager;
         invoiceManager = _invoiceManager;
+        emit CredibleAccountModule_InvoiceManagerUpdated(current, _invoiceManager);
     }
 
     function setInvoiceManager(address _invoiceManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -150,6 +161,21 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         for (uint256 i; i < count; ++i) {
             addresses[i] = getRoleMember(SESSION_KEY_DISABLER, i);
         }
+    }
+
+    // @inheritdoc ICredibleAccountModule
+    function grantOrchestratorRole(address account) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _grantRole(ORCHESTRATOR, account);
+    }
+
+    // @inheritdoc ICredibleAccountModule
+    function revokeOrchestratorRole(address account) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _revokeRole(ORCHESTRATOR, account);
+    }
+
+    // @inheritdoc ICredibleAccountModule
+    function hasOrchestratorRole(address account) external view returns (bool) {
+        return hasRole(ORCHESTRATOR, account);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -195,6 +221,14 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
             revert CredibleAccountModule_MaxLockedTokensReached(rl.sessionKey);
         }
         for (uint256 i; i < rl.tokenData.length; ++i) {
+            address tokenToCheck = rl.tokenData[i].token;
+            for (uint256 j = i + 1; j < rl.tokenData.length; ++j) {
+                if (tokenToCheck == rl.tokenData[j].token) {
+                    revert CredibleAccountModule_DuplicateToken(tokenToCheck);
+                }
+            }
+        }
+        for (uint256 i; i < rl.tokenData.length; ++i) {
             lockedTokens[rl.sessionKey].push(
                 LockedToken({token: rl.tokenData[i].token, lockedAmount: rl.tokenData[i].amount, claimedAmount: 0})
             );
@@ -204,7 +238,6 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         IResourceLockValidator(resourceLockValidator).removeSessionKeyAuthorization(msg.sender, rl.sessionKey);
         bytes memory invoiceData =
             abi.encode(rl.smartWallet, rl.sessionKey, rl.solver, rl.bidHash, rl.chainId, rl.tokenData);
-        // TODO: remove return of session key as not required
         IInvoiceManager(invoiceManager).createInvoice(invoiceData);
         emit CredibleAccountModule_SessionKeyEnabled(rl.sessionKey, msg.sender);
     }
@@ -260,15 +293,33 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     }
 
     // @inheritdoc ICredibleAccountModule
-    function _validateCallStructure(PackedUserOperation calldata userOp) internal view returns (bool) {
+    function updateSessionValidUntil(address _wallet, address _sessionKey, uint48 _validUntil)
+        external
+        onlyRole(ORCHESTRATOR)
+    {
+        SessionData storage sd = sessionData[_wallet][_sessionKey];
+        if (sd.sessionKey == address(0)) revert CredibleAccountModule_SessionKeyDoesNotExist(_sessionKey);
+        if (isSessionClaimed(_sessionKey)) revert CredibleAccountModule_SessionKeyAlreadyClaimed(_sessionKey);
+        uint48 old = sd.validUntil;
+        if (old >= _validUntil) revert CredibleAccountModule_InvalidValidUntil(_validUntil);
+        sd.validUntil = _validUntil;
+        emit CredibleAccountModule_UpdatedSessionValidUntil(_wallet, _sessionKey, old, sd.validUntil);
+    }
+
+    // @inheritdoc ICredibleAccountModule
+    function _validateCallStructure(address _sessionKey, PackedUserOperation calldata userOp)
+        internal
+        view
+        returns (bool)
+    {
         bytes calldata callData = userOp.callData;
         if (bytes4(callData[:4]) == IERC7579Account.execute.selector) {
             ModeCode mode = ModeCode.wrap(bytes32(callData[4:36]));
             (CallType calltype,,,) = ModeLib.decode(mode);
             if (calltype == CALLTYPE_SINGLE) {
-                return _validateSingleCall(callData);
+                return _validateSingleCall(_sessionKey, callData);
             } else if (calltype == CALLTYPE_BATCH) {
-                return _validateBatchCall(callData);
+                return _validateBatchCall(_sessionKey, callData);
             }
         }
         return false;
@@ -342,12 +393,12 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
             revert CredibleAccountModule_InvalidCaller();
         }
         if (userOp.signature.length != 65) return VALIDATION_FAILED;
-        if (!_validateCallStructure(userOp)) {
-            return VALIDATION_FAILED;
-        }
         bytes memory sig = _digestSignature(userOp.signature);
         address sessionKeySigner = ECDSA.recover(ECDSA.toEthSignedMessageHash(userOpHash), sig);
         SessionData memory sd = sessionData[msg.sender][sessionKeySigner];
+        if (!_validateCallStructure(sessionKeySigner, userOp)) {
+            return VALIDATION_FAILED;
+        }
         if (sd.sessionKey != sessionKeySigner) return VALIDATION_FAILED;
         return _packValidationData(false, sd.validUntil, sd.validAfter);
     }
@@ -753,15 +804,21 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
     /**
      * @notice Validates a single execution call against session key constraints
      * @dev Ensures the call targets this contract, uses valid selector
+     * @param _sessionKey The retrieved session key from the signer
      * @param _callData The complete execution calldata including target and data
      * @return bool True if the single call is valid, false otherwise
      */
-    function _validateSingleCall(bytes calldata _callData) internal view returns (bool) {
+    function _validateSingleCall(address _sessionKey, bytes calldata _callData) internal view returns (bool) {
         (address target,, bytes calldata execData) = ExecutionLib.decodeSingle(_callData[EXEC_OFFSET:]);
         bytes4 selector = _validateSelector(bytes4(execData[0:4]));
         if (selector == bytes4(0)) return false;
-        if (selector == IERC20.approve.selector) return true;
+        if (selector == IERC20.approve.selector) {
+            return _validateApproveCall(target, execData);
+        }
         if (target != address(this)) return false; // If not approve call must call this contract
+        if (selector == this.claim.selector) {
+            if (_sessionKey != address(bytes20(execData[16:36]))) return false;
+        }
         return true;
     }
 
@@ -769,17 +826,40 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
      * @notice Validates a batch of execution calls against session key constraints
      * @dev Iterates through all executions in the batch, ensuring each call targets
      *      this contract, uses valid selectors
+     * @param _sessionKey The retrieved session key from the signer
      * @param _callData The complete batch execution calldata
      * @return bool True if all batch calls are valid, false if any call fails validation
      */
-    function _validateBatchCall(bytes calldata _callData) internal view returns (bool) {
+    function _validateBatchCall(address _sessionKey, bytes calldata _callData) internal view returns (bool) {
         Execution[] calldata execs = ExecutionLib.decodeBatch(_callData[EXEC_OFFSET:]);
         for (uint256 i; i < execs.length; ++i) {
             bytes4 selector = _validateSelector(bytes4(execs[i].callData[0:4]));
             if (selector == bytes4(0)) return false;
-            if (selector == IERC20.approve.selector) continue;
+            if (selector == IERC20.approve.selector) {
+                if (!_validateApproveCall(execs[i].target, execs[i].callData)) return false;
+                continue;
+            }
             if (execs[i].target != address(this)) return false; // If not approve call must call this contract
+            if (selector == this.claim.selector) {
+                if (_sessionKey != address(bytes20(execs[i].callData[16:36]))) return false;
+            }
         }
         return true;
+    }
+
+    /**
+     * @notice Validates ERC20 approve calls to ensure only this contract can be approved as spender
+     * @param target The target contract address (should be an ERC20 token)
+     * @param callData The approve function call data
+     * @return bool True if the approve call is valid (spender is this contract), false otherwise
+     */
+    function _validateApproveCall(address target, bytes calldata callData) internal view returns (bool) {
+        // Decode approve(address spender, uint256 amount) parameters
+        console2.log("APPROVE CALLDATA.LENGTH:", callData.length);
+        console2.logBytes(callData);
+        if (callData.length != 68) return false;
+        // Skip the 4-byte selector and decode the parameters
+        (address spender, uint256 amount) = abi.decode(callData[4:], (address, uint256));
+        return spender == address(this);
     }
 }

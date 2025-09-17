@@ -25,6 +25,10 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     event GasTankPaymaster_Received(address indexed sender, uint256 amount);
     event GasTankPaymaster_StaleTokenPrice();
     event GasTankPaymaster_TopUpExecuted(uint256 tokenUsed, uint256 nativeAmount);
+    event GasTankPaymaster_SequencerDown();
+    event GasTankPaymaster_SequencerGracePeriodActive(uint256 timeSinceUp);
+    event GasTankPaymaster_OracleUpdateFailed();
+    event GasTankPaymaster_PaymasterConfigUpdated(GasTankPaymaster.GasTankPaymasterConfig newConfig);
 
     /*//////////////////////////////////////////////////////////////
                          BASIC FUNCTIONALITY TESTS
@@ -227,8 +231,17 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     function test_setFeeReceiver() public {
         (address payable newFeeReceiver, uint256 newFeeReceiverKey) = _makePayableAddrAndKey("newFeeReceiver");
         vm.startPrank(deployer.pub);
+        gasTankUSDC.pause();
         _setFeeReceiver(gasTankUSDC, newFeeReceiver);
+        gasTankUSDC.unpause();
         assertEq(gasTankUSDC.feeReceiver(), newFeeReceiver);
+    }
+
+    function test_setFeeReceiver_revertIf_notPaused() public {
+        (address payable newFeeReceiver, uint256 newFeeReceiverKey) = _makePayableAddrAndKey("newFeeReceiver");
+        vm.startPrank(deployer.pub);
+        _toRevert(GasTankPaymaster.GasTankPaymaster_IsNotPaused.selector, hex"");
+        _setFeeReceiver(gasTankUSDC, newFeeReceiver);
     }
 
     function test_setSwapRouter() public {
@@ -236,6 +249,20 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         vm.prank(deployer.pub);
         _setSwapRouter(gasTankUSDC, newSwapRouter);
         assertEq(address(gasTankUSDC.uniswap()), newSwapRouter);
+    }
+
+    function test_setSwapRouter_revokesOldApproval() public {
+        address initialRouter = address(gasTankUSDC.uniswap());
+        uint256 initialApproval = usdc.allowance(address(gasTankUSDC), initialRouter);
+        assertEq(initialApproval, type(uint256).max, "Initial router should have max approval");
+        address newSwapRouter = makeAddr("newSwapRouter");
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSwapRouter(ISwapRouter(newSwapRouter));
+        uint256 oldApproval = usdc.allowance(address(gasTankUSDC), initialRouter);
+        assertEq(oldApproval, 0, "Old router approval should be revoked");
+        uint256 newApproval = usdc.allowance(address(gasTankUSDC), newSwapRouter);
+        assertEq(newApproval, type(uint256).max, "New router should have max approval");
+        assertEq(address(gasTankUSDC.uniswap()), newSwapRouter, "Router should be updated");
     }
 
     function test_withdrawFromEntryPoint() public {
@@ -504,21 +531,487 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     }
 
     /*//////////////////////////////////////////////////////////////
+                       TOKEN RESERVATION SYSTEM TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_reservationAmounts_initiallyZero() public {
+        assertEq(gasTankUSDC.getReservedAmount(alice.pub), 0);
+        assertEq(gasTankUSDC.getReservedAmount(bob.pub), 0);
+        assertEq(gasTankUSDC.getReservedAmount(address(scw)), 0);
+    }
+
+    function test_gasTankAvailableBalance_withoutReservation() public {
+        // Setup: Deposit tokens
+        _depositToGasTank(gasTankUSDC, address(usdc), alice.pub, USDC_DEPOSIT_AMOUNT);
+
+        // Available balance should equal total balance when no reservations
+        assertEq(gasTankUSDC.gasTankAvailableBalance(alice.pub), USDC_DEPOSIT_AMOUNT);
+        assertEq(gasTankUSDC.gasTankBalance(alice.pub), USDC_DEPOSIT_AMOUNT);
+    }
+
+    function test_gasTankAvailableBalance_afterSponsoredTransaction() public {
+        // Setup: Deposit tokens and fund EntryPoint
+        uint256 initialDeposit = 1000 * 10 ** 6;
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
+
+        vm.deal(address(scw), 5 ether);
+        vm.prank(address(scw));
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        // Execute sponsored transaction to trigger reservation
+        vm.warp(block.timestamp + 1 days);
+
+        // Update oracle timestamps to current time to avoid stale price
+        usdcOracle.configureUpdatedAt(block.timestamp);
+        nativeOracle.configureUpdatedAt(block.timestamp);
+
+        // Force fresh price calculation by clearing cache and updating
+        vm.startPrank(deployer.pub);
+        // First, get current config to modify it
+        GasTankPaymaster.GasTankPaymasterConfig memory config = gasTankUSDC.getPaymasterConfig();
+        config.cachedTokenPrice = 0; // Clear cached price
+        config.cachedPriceTimestamp = 0; // Clear timestamp to force refresh
+        gasTankUSDC.configurePaymaster(config);
+        gasTankUSDC.updateCachedPrice(true); // Force update with new oracle values
+        vm.stopPrank();
+
+        PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp);
+        vm.stopPrank();
+
+        // Check that tokens are now reserved
+        uint256 reservedAmount = gasTankUSDC.getReservedAmount(address(scw));
+        assertGt(reservedAmount, 0); // Some amount should be reserved
+
+        // Available balance should be total - reserved
+        uint256 availableBalance = gasTankUSDC.gasTankAvailableBalance(address(scw));
+        assertEq(availableBalance, initialDeposit - reservedAmount);
+    }
+
+    function test_gasTankWithdraw_success_withoutReservation() public {
+        // Setup: Normal withdrawal should work
+        _depositToGasTank(gasTankUSDC, address(usdc), alice.pub, USDC_DEPOSIT_AMOUNT);
+        assertEq(gasTankUSDC.getReservedAmount(alice.pub), 0);
+
+        // Should succeed
+        _withdrawFromGasTank(gasTankUSDC, address(usdc), alice.pub, USDC_WITHDRAW_AMOUNT);
+        assertEq(gasTankUSDC.gasTankBalance(alice.pub), USDC_DEPOSIT_AMOUNT - USDC_WITHDRAW_AMOUNT);
+    }
+
+    function test_gasTankWithdraw_success_withAvailableBalance() public {
+        // Setup: Execute sponsored transaction to create reservation
+        uint256 initialDeposit = 1000 * 10 ** 6;
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
+
+        vm.deal(address(scw), 5 ether);
+        vm.prank(address(scw));
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        // Execute sponsored transaction
+        vm.warp(block.timestamp + 1 days);
+
+        // Update oracle timestamps to current time to avoid stale price
+        usdcOracle.configureUpdatedAt(block.timestamp);
+        nativeOracle.configureUpdatedAt(block.timestamp);
+
+        PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp);
+        vm.stopPrank();
+
+        // Get available amount and withdraw it
+        uint256 actualBalance = gasTankUSDC.gasTankBalance(address(scw));
+        console2.log("ACTUAL BALANCE:", actualBalance);
+        uint256 availableAmount = gasTankUSDC.gasTankAvailableBalance(address(scw));
+        uint256 reservedAmount = gasTankUSDC.getReservedAmount(address(scw));
+
+        assertGt(reservedAmount, 0); // Should have some reservation
+        assertLt(availableAmount, initialDeposit); // Available should be less than total
+
+        // Withdraw available amount should succeed
+        vm.prank(address(scw));
+        gasTankUSDC.gasTankWithdraw(availableAmount);
+
+        assertEq(gasTankUSDC.gasTankBalance(address(scw)), reservedAmount);
+        assertEq(gasTankUSDC.getReservedAmount(address(scw)), reservedAmount);
+    }
+
+    function test_gasTankWithdraw_revertWhen_exceedsAvailableBalance() public {
+        // Setup: Execute sponsored transaction to create reservation
+        uint256 initialDeposit = 1000 * 10 ** 6;
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
+
+        vm.deal(address(scw), 5 ether);
+        vm.prank(address(scw));
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        // Execute sponsored transaction
+        vm.warp(block.timestamp + 1 days);
+        PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp);
+        vm.stopPrank();
+
+        // Try to withdraw more than available balance
+        uint256 availableBalance = gasTankUSDC.gasTankAvailableBalance(address(scw));
+        uint256 attemptWithdraw = availableBalance + 1;
+
+        vm.prank(address(scw));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GasTankPaymaster.GasTankPaymaster_InsufficientBalance.selector, address(scw), attemptWithdraw
+            )
+        );
+        gasTankUSDC.gasTankWithdraw(attemptWithdraw);
+    }
+
+    function test_gasTankWithdraw_revertWhen_allTokensReserved() public {
+        // Setup: Execute multiple sponsored transactions to reserve most/all tokens
+        uint256 initialDeposit = 500 * 10 ** 6; // Smaller deposit to make it easier to reserve all
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
+
+        vm.deal(address(scw), 5 ether);
+        vm.prank(address(scw));
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        // Execute sponsored transaction
+        vm.warp(block.timestamp + 1 days);
+        PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp);
+        vm.stopPrank();
+
+        // Get available balance
+        uint256 availableBalance = gasTankUSDC.gasTankAvailableBalance(address(scw));
+
+        if (availableBalance == 0) {
+            // All tokens are reserved - any withdrawal should fail
+            vm.prank(address(scw));
+            vm.expectRevert(
+                abi.encodeWithSelector(GasTankPaymaster.GasTankPaymaster_InsufficientBalance.selector, address(scw), 1)
+            );
+            gasTankUSDC.gasTankWithdraw(1);
+        } else {
+            // Some tokens available - try to withdraw more than available
+            vm.prank(address(scw));
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    GasTankPaymaster.GasTankPaymaster_InsufficientBalance.selector, address(scw), availableBalance + 1
+                )
+            );
+            gasTankUSDC.gasTankWithdraw(availableBalance + 1);
+        }
+    }
+
+    function test_reservationSystem_doesNotAffectOtherUsers() public {
+        // Setup: Both users deposit tokens
+        uint256 aliceDeposit = 1000 * 10 ** 6;
+        uint256 bobDeposit = 2000 * 10 ** 6;
+
+        _depositToGasTank(gasTankUSDC, address(usdc), alice.pub, aliceDeposit);
+        _depositToGasTank(gasTankUSDC, address(usdc), bob.pub, bobDeposit);
+
+        // Both users start with full available balance
+        assertEq(gasTankUSDC.getReservedAmount(alice.pub), 0);
+        assertEq(gasTankUSDC.getReservedAmount(bob.pub), 0);
+        assertEq(gasTankUSDC.gasTankAvailableBalance(alice.pub), aliceDeposit);
+        assertEq(gasTankUSDC.gasTankAvailableBalance(bob.pub), bobDeposit);
+
+        // Execute sponsored transaction for Alice only
+        vm.deal(alice.pub, 5 ether);
+        vm.prank(alice.pub);
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        // Create sponsored transaction for Alice using her wallet
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), aliceDeposit);
+        vm.deal(address(scw), 5 ether);
+        vm.prank(address(scw));
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        vm.warp(block.timestamp + 1 days);
+        PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp);
+        vm.stopPrank();
+
+        // Alice (represented by scw) should have reservations, Bob should not
+        assertGt(gasTankUSDC.getReservedAmount(address(scw)), 0);
+        assertEq(gasTankUSDC.getReservedAmount(bob.pub), 0);
+
+        // Bob should still have full available balance
+        assertEq(gasTankUSDC.gasTankAvailableBalance(bob.pub), bobDeposit);
+
+        // Bob can withdraw normally
+        _withdrawFromGasTank(gasTankUSDC, address(usdc), bob.pub, 100 * 10 ** 6);
+        assertEq(gasTankUSDC.gasTankBalance(bob.pub), bobDeposit - 100 * 10 ** 6);
+
+        // Alice (scw) can only withdraw available amount
+        uint256 aliceAvailable = gasTankUSDC.gasTankAvailableBalance(address(scw));
+        if (aliceAvailable > 0) {
+            vm.prank(address(scw));
+            gasTankUSDC.gasTankWithdraw(aliceAvailable);
+        }
+    }
+
+    function test_validatePaymasterUserOp_success_withReservation() public {
+        // Setup: Execute sponsored transaction to create reservations
+        uint256 initialDeposit = 1000 * 10 ** 6;
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
+
+        vm.deal(address(scw), 5 ether);
+        vm.prank(address(scw));
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        // Execute first sponsored transaction
+        vm.warp(block.timestamp + 1 days);
+        PackedUserOperation memory userOp1 = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp1);
+        vm.stopPrank();
+
+        // Verify reservation exists
+        assertGt(gasTankUSDC.getReservedAmount(address(scw)), 0);
+
+        // Create second user operation - should still validate successfully
+        PackedUserOperation memory userOp2 = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        // Validation should succeed even with existing reservations - test by executing the operation
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp2);
+        vm.stopPrank();
+
+        // Verify second transaction succeeded and increased reservations
+        uint256 finalReservation = gasTankUSDC.getReservedAmount(address(scw));
+        // Final reservation should be greater than zero (accumulation of both transactions)
+        assertGt(finalReservation, 0);
+    }
+
+    /*//////////////////////////////////////////////////////////////
                     SPONSORED TRANSACTION REPAYMENT
     //////////////////////////////////////////////////////////////*/
 
-    function test_repaySponsoredTransaction_success() public {
-        vm.startPrank(alice.pub);
-        usdc.approve(address(gasTankUSDC), 1000 * 10 ** 6);
-        gasTankUSDC.gasTankDeposit(1000 * 10 ** 6);
+    function test_repaySponsoredTransaction_reducesReservation() public {
+        // Setup: Execute sponsored transaction to create reservation
+        uint256 initialDeposit = 1000 * 10 ** 6;
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
+
+        vm.deal(address(scw), 5 ether);
+        vm.prank(address(scw));
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        // Execute sponsored transaction
+        vm.warp(block.timestamp + 1 days);
+        PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp);
         vm.stopPrank();
-        uint256 initialFromBalance = gasTankUSDC.gasTankBalance(alice.pub);
-        uint256 initialFeeReceiverBalance = gasTankUSDC.gasTankBalance(feeReceiver.pub);
-        uint256 repayAmount = 500 * 10 ** 6;
+
+        // Verify reservation exists
+        uint256 initialReservation = gasTankUSDC.getReservedAmount(address(scw));
+        assertGt(initialReservation, 0);
+
+        // Repay part of the reservation
+        uint256 repayAmount = 50 * 10 ** 6;
+        uint256 initialBalance = gasTankUSDC.gasTankBalance(address(scw));
+
         vm.prank(deployer.pub);
-        gasTankUSDC.repaySponsoredTransaction(alice.pub, repayAmount);
-        assertEq(gasTankUSDC.gasTankBalance(alice.pub), initialFromBalance - repayAmount);
-        assertEq(gasTankUSDC.gasTankBalance(feeReceiver.pub), initialFeeReceiverBalance + repayAmount);
+        gasTankUSDC.repaySponsoredTransaction(address(scw), repayAmount);
+
+        // Verify reservation is reduced
+        uint256 newReservation = gasTankUSDC.getReservedAmount(address(scw));
+        if (initialReservation >= repayAmount) {
+            assertEq(newReservation, initialReservation - repayAmount);
+        } else {
+            assertEq(newReservation, 0); // Cleared if repay exceeds reservation
+        }
+
+        // Verify balance is reduced
+        assertEq(gasTankUSDC.gasTankBalance(address(scw)), initialBalance - repayAmount);
+    }
+
+    function test_repaySponsoredTransaction_clearsReservationCompletely() public {
+        // Setup: Execute sponsored transaction
+        uint256 initialDeposit = 1000 * 10 ** 6;
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
+
+        vm.deal(address(scw), 5 ether);
+        vm.prank(address(scw));
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        vm.warp(block.timestamp + 1 days);
+        PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp);
+        vm.stopPrank();
+
+        uint256 reservedAmount = gasTankUSDC.getReservedAmount(address(scw));
+        assertGt(reservedAmount, 0);
+
+        // Repay amount equal to or greater than reserved amount
+        uint256 repayAmount = reservedAmount + 10 * 10 ** 6; // Pay a bit extra
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.repaySponsoredTransaction(address(scw), repayAmount);
+
+        // Reservation should be completely cleared
+        assertEq(gasTankUSDC.getReservedAmount(address(scw)), 0);
+
+        // User should now be able to withdraw remaining balance
+        uint256 remainingBalance = gasTankUSDC.gasTankBalance(address(scw));
+        if (remainingBalance > 0) {
+            vm.prank(address(scw));
+            gasTankUSDC.gasTankWithdraw(remainingBalance);
+            assertEq(gasTankUSDC.gasTankBalance(address(scw)), 0);
+        }
+    }
+
+    function test_repaySponsoredTransaction_partialReservationClearing() public {
+        // Setup: Execute sponsored transaction
+        uint256 initialDeposit = 1000 * 10 ** 6;
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
+
+        vm.deal(address(scw), 5 ether);
+        vm.prank(address(scw));
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        vm.warp(block.timestamp + 1 days);
+        PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp);
+        vm.stopPrank();
+
+        uint256 reservedAmount = gasTankUSDC.getReservedAmount(address(scw));
+        assertGt(reservedAmount, 0);
+
+        // Repay partial amount (ensure it's less than reserved)
+        uint256 repayAmount = reservedAmount / 2; // Pay half
+
+        // Only proceed if we have a meaningful partial amount
+        if (repayAmount > 0 && repayAmount < reservedAmount) {
+            vm.prank(deployer.pub);
+            gasTankUSDC.repaySponsoredTransaction(address(scw), repayAmount);
+
+            // Reservation should be reduced by repayment amount
+            assertEq(gasTankUSDC.getReservedAmount(address(scw)), reservedAmount - repayAmount);
+
+            // User should have more available balance now
+            uint256 currentBalance = gasTankUSDC.gasTankBalance(address(scw));
+            uint256 newAvailable = gasTankUSDC.gasTankAvailableBalance(address(scw));
+            assertEq(newAvailable, currentBalance - (reservedAmount - repayAmount));
+        } else {
+            // If reservation is too small for meaningful partial repayment, just verify the reservation exists
+            assertTrue(reservedAmount > 0);
+        }
     }
 
     function test_repaySponsoredTransaction_exactBalance() public {
@@ -634,28 +1127,279 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
     }
 
     /*//////////////////////////////////////////////////////////////
-                       ENTRYPOINT TOP-UP FUNCTIONALITY
+                TOKEN RESERVATION ESCAPE ATTACK PREVENTION
     //////////////////////////////////////////////////////////////*/
 
-    function test_topUpEntryPointDeposit_belowMinimum() public {
-        vm.startPrank(address(uniswapV3));
-        usdc.mint(address(uniswapV3), 50000 * 10 ** 6);
-        vm.deal(address(uniswapV3), 25 ether);
-        weth.deposit{value: 25 ether}();
+    function test_fullTokenReservationEscapePreventionFlow() public {
+        // Setup: User deposits tokens into gas tank
+        uint256 initialDeposit = 1000 * 10 ** 6; // 1000 USDC
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
+
+        // Ensure EntryPoint has enough balance to avoid top-up complications
+        vm.deal(address(scw), 5 ether);
+        vm.prank(address(scw));
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        assertEq(gasTankUSDC.getReservedAmount(address(scw)), 0);
+        assertEq(gasTankUSDC.gasTankBalance(address(scw)), initialDeposit);
+        assertEq(gasTankUSDC.gasTankAvailableBalance(address(scw)), initialDeposit);
+
+        // Step 1: User submits a transaction that gets sponsored
+        vm.warp(block.timestamp + 1 days);
+        PackedUserOperation memory userOp = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        // Execute user operation - this should trigger token reservation in _postOp
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp);
         vm.stopPrank();
-        _depositToGasTank(gasTankUSDC, address(usdc), feeReceiver.pub, 200 * 10 ** 6);
-        _depositToGasTank(gasTankUSDC, address(usdc), alice.pub, 100 * 10 ** 6);
-        vm.startPrank(deployer.pub);
-        TestOracle(address(usdcOracle)).configurePrice(1e8);
-        TestOracle(address(nativeOracle)).configurePrice(2000e8);
-        gasTankUSDC.updateCachedPrice(true);
-        uint256 initStake = _getEntryPointStake(gasTankUSDC);
-        gasTankUSDC.withdrawTo(beneficiary.pub, initStake - 0.96 ether);
-        gasTankUSDC.topUpEntryPointDeposit();
-        uint256 currentBalance = gasTankUSDC.getDeposit();
-        assertGt(currentBalance, 1 ether);
-        assertEq(gasTankUSDC.gasTankBalance(feeReceiver.pub), 0);
+
+        // Step 2: Verify tokens are now reserved (prevents escape attack)
+        uint256 reservedAmount = gasTankUSDC.getReservedAmount(address(scw));
+        console2.log("RESERVED AMOUNT:", reservedAmount);
+        assertGt(reservedAmount, 0); // Some amount should be reserved
+
+        uint256 availableBalance = gasTankUSDC.gasTankAvailableBalance(address(scw));
+        console2.log("AVAILABE BALANCE:", availableBalance);
+        assertEq(availableBalance, initialDeposit - reservedAmount);
+
+        // Step 3: User attempts to withdraw all funds (escape attack) - should fail
+        vm.prank(address(scw));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GasTankPaymaster.GasTankPaymaster_InsufficientBalance.selector, address(scw), initialDeposit
+            )
+        );
+        gasTankUSDC.gasTankWithdraw(initialDeposit);
+
+        // Step 3b: User can only withdraw available balance (but let's keep balance for second transaction)
+        // Don't withdraw yet - we need balance for the second transaction to demonstrate accumulation
+
+        // Step 4: User can still sponsor new transactions (reservation doesn't block validation)
+        PackedUserOperation memory userOp2 = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+        vm.prank(address(scw));
+        _executeUserOp(userOp2);
+
+        // Step 5: Verify reservations accumulated from both transactions
+        uint256 totalReservationAfterTwo = gasTankUSDC.getReservedAmount(address(scw));
+        assertGt(totalReservationAfterTwo, reservedAmount); // Should be greater than first reservation
+
+        // Step 6: Admin collects repayment for gas costs
+        uint256 repaymentAmount = totalReservationAfterTwo / 2; // Repay half of total reservation
+        uint256 initialReservedAmount = totalReservationAfterTwo;
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.repaySponsoredTransaction(address(scw), repaymentAmount);
+
+        // Step 7: After repayment, reservation should be reduced
+        uint256 newReservedAmount = gasTankUSDC.getReservedAmount(address(scw));
+        if (initialReservedAmount >= repaymentAmount) {
+            assertEq(newReservedAmount, initialReservedAmount - repaymentAmount);
+        } else {
+            assertEq(newReservedAmount, 0);
+        }
+
+        // Step 8: User now has available balance again after partial repayment
+        uint256 newAvailableBalance = gasTankUSDC.gasTankAvailableBalance(address(scw));
+        if (newAvailableBalance > 0) {
+            vm.prank(address(scw));
+            gasTankUSDC.gasTankWithdraw(newAvailableBalance);
+        }
+
+        // Step 8: User can sponsor new transactions normally
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), 100 * 10 ** 6);
+        assertEq(gasTankUSDC.gasTankAvailableBalance(address(scw)), 100 * 10 ** 6);
+
+        // Create a fresh user operation
+        PackedUserOperation memory userOp3 = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.prank(address(scw));
+        _executeUserOp(userOp3);
+    }
+
+    function test_multipleUserOperations_reservationSequence() public {
+        // Setup: Multiple users with gas tank deposits
+        uint256 aliceDeposit = 1000 * 10 ** 6;
+        uint256 bobDeposit = 2000 * 10 ** 6;
+
+        _depositToGasTank(gasTankUSDC, address(usdc), alice.pub, aliceDeposit);
+        _depositToGasTank(gasTankUSDC, address(usdc), bob.pub, bobDeposit);
+
+        // Ensure EntryPoint has enough balance
+        vm.deal(alice.pub, 5 ether);
+        vm.prank(alice.pub);
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        // Both users start with no reservations
+        assertEq(gasTankUSDC.getReservedAmount(alice.pub), 0);
+        assertEq(gasTankUSDC.getReservedAmount(bob.pub), 0);
+        assertEq(gasTankUSDC.gasTankAvailableBalance(alice.pub), aliceDeposit);
+        assertEq(gasTankUSDC.gasTankAvailableBalance(bob.pub), bobDeposit);
+
+        // Execute sponsored transaction for Alice (using scw as proxy)
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), aliceDeposit);
+        vm.deal(address(scw), 5 ether);
+        vm.prank(address(scw));
+        gasTankUSDC.deposit{value: 5 ether}();
+
+        vm.warp(block.timestamp + 1 days);
+        PackedUserOperation memory aliceUserOp = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.startPrank(address(scw));
+        _executeUserOp(aliceUserOp);
         vm.stopPrank();
+
+        // Alice (scw) should have reservation, Bob should not
+        assertGt(gasTankUSDC.getReservedAmount(address(scw)), 0);
+        assertEq(gasTankUSDC.getReservedAmount(bob.pub), 0);
+
+        // Bob can still withdraw normally
+        _withdrawFromGasTank(gasTankUSDC, address(usdc), bob.pub, 100 * 10 ** 6);
+
+        // Alice (scw) can only withdraw available amount
+        uint256 aliceAvailable = gasTankUSDC.gasTankAvailableBalance(address(scw));
+        if (aliceAvailable > 0) {
+            vm.prank(address(scw));
+            gasTankUSDC.gasTankWithdraw(aliceAvailable);
+        }
+
+        // Alice (scw) cannot withdraw beyond available (escape attack prevention)
+        vm.prank(address(scw));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GasTankPaymaster.GasTankPaymaster_InsufficientBalance.selector, address(scw), 100 * 10 ** 6
+            )
+        );
+        gasTankUSDC.gasTankWithdraw(100 * 10 ** 6);
+
+        // Repay Alice partially
+        uint256 aliceReservation = gasTankUSDC.getReservedAmount(address(scw));
+        uint256 aliceRepayment = aliceReservation / 2;
+
+        if (aliceRepayment > 0) {
+            vm.prank(deployer.pub);
+            gasTankUSDC.repaySponsoredTransaction(address(scw), aliceRepayment);
+
+            // Alice's reservation should be reduced
+            assertEq(gasTankUSDC.getReservedAmount(address(scw)), aliceReservation - aliceRepayment);
+        }
+
+        // Bob still unaffected
+        assertEq(gasTankUSDC.getReservedAmount(bob.pub), 0);
+        assertGt(gasTankUSDC.gasTankAvailableBalance(bob.pub), 0);
+    }
+
+    function test_tokenReservation_preventsCompleteEscapeAttack() public {
+        // Setup: Execute multiple transactions to build up reservations
+        uint256 largeDeposit = 2000 * 10 ** 6;
+        _depositToGasTank(gasTankUSDC, address(usdc), address(scw), largeDeposit);
+
+        vm.deal(address(scw), 10 ether);
+        vm.prank(address(scw));
+        gasTankUSDC.deposit{value: 10 ether}();
+
+        // Execute first transaction
+        vm.warp(block.timestamp + 1 days);
+        PackedUserOperation memory userOp1 = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp1);
+        vm.stopPrank();
+
+        uint256 firstReservation = gasTankUSDC.getReservedAmount(address(scw));
+        assertGt(firstReservation, 0);
+
+        // Execute second transaction to increase reservations
+        PackedUserOperation memory userOp2 = _createUserOperationWithGasTankPaymaster(
+            gasTankUSDC,
+            address(scw),
+            eoa.priv,
+            _getBasicCalldata(),
+            2 gwei,
+            1 gwei,
+            verifyingSigner.priv,
+            uint48(block.timestamp + 1 hours),
+            uint48(block.timestamp)
+        );
+
+        vm.startPrank(address(scw));
+        _executeUserOp(userOp2);
+        vm.stopPrank();
+
+        uint256 totalReservation = gasTankUSDC.getReservedAmount(address(scw));
+        assertGt(totalReservation, firstReservation); // Should have increased
+
+        // Verify user cannot escape with funds reserved for gas payments
+        uint256 availableBalance = gasTankUSDC.gasTankAvailableBalance(address(scw));
+        assertEq(availableBalance, largeDeposit - totalReservation);
+
+        // User can only withdraw non-reserved amount
+        if (availableBalance > 0) {
+            vm.prank(address(scw));
+            gasTankUSDC.gasTankWithdraw(availableBalance);
+        }
+
+        assertEq(gasTankUSDC.gasTankBalance(address(scw)), totalReservation);
+
+        // Attempt to withdraw reserved amount should fail
+        if (totalReservation > 0) {
+            vm.prank(address(scw));
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    GasTankPaymaster.GasTankPaymaster_InsufficientBalance.selector, address(scw), totalReservation
+                )
+            );
+            gasTankUSDC.gasTankWithdraw(totalReservation);
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -677,7 +1421,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
             bool needsTopUp,
             bool isPaused
         ) = gasTankUSDC.getPaymasterStatus();
-        assertEq(cachedTokenPrice, 5e22);
+        assertEq(cachedTokenPrice, 5e22); // Base price without markup (cached price should not include markup)
         assertEq(feeReceiverUSDCBalance, 500 * 10 ** 6);
         assertEq(entryPointBalance, entrypoint.balanceOf(address(gasTankUSDC)));
         assertFalse(isPaused);
@@ -1334,5 +2078,240 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         // Verify fee receiver balance unchanged (no top-up occurred)
         uint256 finalFrBalance = gasTankUSDC.gasTankBalance(feeReceiver.pub);
         assertEq(finalFrBalance, 20 * 10 ** 6);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                      L2 SEQUENCER UPTIME TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_getSequencerStatus_withoutFeed_assumesUp() public {
+        // Default setup has no sequencer feed (address(0))
+        (bool isUp, bool hasSequencerFeed) = gasTankUSDC.getSequencerStatus();
+
+        assertFalse(hasSequencerFeed, "Should not have sequencer feed by default");
+        assertTrue(isUp, "Should assume sequencer is up for non-L2 chains");
+    }
+
+    function test_getSequencerStatus_withFeed_up() public {
+        // Warp to a reasonable timestamp first to avoid underflow
+        vm.warp(10000);
+
+        // Set mock sequencer feed
+        MockSequencerUptimeFeed mockFeed = new MockSequencerUptimeFeed();
+        // Set sequencer up with old timestamp (past grace period)
+        uint256 oldTimestamp = block.timestamp - 7200; // 2 hours ago
+        mockFeed.setSequencerUpWithTimestamp(oldTimestamp);
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(mockFeed)));
+
+        (bool isUp, bool hasSequencerFeed) = gasTankUSDC.getSequencerStatus();
+
+        assertTrue(hasSequencerFeed, "Should have sequencer feed");
+        assertTrue(isUp, "Sequencer should be up");
+    }
+
+    function test_getSequencerStatus_withFeed_down() public {
+        MockSequencerUptimeFeed mockFeed = new MockSequencerUptimeFeed();
+        mockFeed.setSequencerDown();
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(mockFeed)));
+
+        (bool isUp, bool hasSequencerFeed) = gasTankUSDC.getSequencerStatus();
+
+        assertTrue(hasSequencerFeed, "Should have sequencer feed");
+        assertFalse(isUp, "Sequencer should be down");
+    }
+
+    function test_getSequencerStatus_gracePeriod() public {
+        // Warp to a reasonable timestamp first to avoid underflow
+        vm.warp(10000);
+
+        MockSequencerUptimeFeed mockFeed = new MockSequencerUptimeFeed();
+        // Set sequencer as recently came up (within grace period)
+        uint256 recentTimestamp = block.timestamp - 1800; // 30 minutes ago
+        mockFeed.setSequencerUpWithTimestamp(recentTimestamp);
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(mockFeed)));
+
+        (bool isUp, bool hasSequencerFeed) = gasTankUSDC.getSequencerStatus();
+
+        assertTrue(hasSequencerFeed, "Should have sequencer feed");
+        assertFalse(isUp, "Should be in grace period");
+    }
+
+    function test_getSequencerStatus_pastGracePeriod() public {
+        // Warp to a reasonable timestamp first to avoid underflow
+        vm.warp(10000);
+
+        MockSequencerUptimeFeed mockFeed = new MockSequencerUptimeFeed();
+        // Set sequencer as came up before grace period
+        uint256 oldTimestamp = block.timestamp - 7200; // 2 hours ago
+        mockFeed.setSequencerUpWithTimestamp(oldTimestamp);
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(mockFeed)));
+
+        (bool isUp, bool hasSequencerFeed) = gasTankUSDC.getSequencerStatus();
+
+        assertTrue(hasSequencerFeed, "Should have sequencer feed");
+        assertTrue(isUp, "Should be past grace period");
+    }
+
+    function test_setSequencerUptimeFeed_success() public {
+        MockSequencerUptimeFeed mockFeed = new MockSequencerUptimeFeed();
+
+        // Get current config and update it with the new sequencer feed to match what will be emitted
+        GasTankPaymaster.GasTankPaymasterConfig memory expectedConfig = gasTankUSDC.getPaymasterConfig();
+        expectedConfig.sequencerUptimeFeed = AggregatorV2V3Interface(address(mockFeed));
+
+        vm.expectEmit(true, true, true, true);
+        emit GasTankPaymaster_PaymasterConfigUpdated(expectedConfig);
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(mockFeed)));
+
+        GasTankPaymaster.GasTankPaymasterConfig memory config = gasTankUSDC.getPaymasterConfig();
+        assertEq(address(config.sequencerUptimeFeed), address(mockFeed), "Sequencer feed should be updated");
+    }
+
+    function test_setSequencerUptimeFeed_revertWhen_notOwner() public {
+        MockSequencerUptimeFeed mockFeed = new MockSequencerUptimeFeed();
+
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice.pub));
+
+        vm.prank(alice.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(mockFeed)));
+    }
+
+    function test_updateCachedPrice_sequencerDown_returnsZero() public {
+        MockSequencerUptimeFeed mockFeed = new MockSequencerUptimeFeed();
+        mockFeed.setSequencerDown();
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(mockFeed)));
+
+        vm.expectEmit(true, true, true, true);
+        emit GasTankPaymaster_OracleUpdateFailed();
+
+        uint256 price = gasTankUSDC.updateCachedPrice(true);
+        assertEq(price, 0, "Should return 0 when sequencer is down");
+    }
+
+    function test_updateCachedPrice_gracePeriod_returnsZero() public {
+        // Warp to a reasonable timestamp first to avoid underflow
+        vm.warp(10000);
+
+        MockSequencerUptimeFeed mockFeed = new MockSequencerUptimeFeed();
+        // Set sequencer as recently came up
+        uint256 recentTimestamp = block.timestamp - 1800; // 30 minutes ago
+        mockFeed.setSequencerUpWithTimestamp(recentTimestamp);
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(mockFeed)));
+
+        vm.expectEmit(true, true, true, true);
+        emit GasTankPaymaster_OracleUpdateFailed();
+
+        uint256 price = gasTankUSDC.updateCachedPrice(true);
+        assertEq(price, 0, "Should return 0 during grace period");
+    }
+
+    function test_updateCachedPrice_sequencerUp_pastGracePeriod_succeeds() public {
+        // Warp to exactly the oracle timestamp to make data fresh
+        vm.warp(1680509051); // Exactly at oracle timestamp
+
+        // Update oracle timestamps to match warped time to make data fresh
+        usdcOracle.configureUpdatedAt(block.timestamp);
+        nativeOracle.configureUpdatedAt(block.timestamp);
+
+        MockSequencerUptimeFeed mockFeed = new MockSequencerUptimeFeed();
+        // Set sequencer as came up well before grace period
+        uint256 oldTimestamp = block.timestamp - 7200; // 2 hours ago
+        mockFeed.setSequencerUpWithTimestamp(oldTimestamp);
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(mockFeed)));
+
+        uint256 price = gasTankUSDC.updateCachedPrice(true);
+        assertGt(price, 0, "Should return valid price when sequencer is up and past grace period");
+    }
+
+    function test_topUpEntryPointDeposit_sequencerDown_skipsTopUp() public {
+        MockSequencerUptimeFeed mockFeed = new MockSequencerUptimeFeed();
+        mockFeed.setSequencerDown();
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(mockFeed)));
+
+        // Fund the fee receiver with tokens
+        _depositToGasTankForWallet(gasTankUSDC, address(usdc), feeReceiver.pub, feeReceiver.pub, USDC_DEPOSIT_AMOUNT);
+
+        vm.expectEmit(true, true, true, true);
+        emit GasTankPaymaster_OracleUpdateFailed();
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.topUpEntryPointDeposit();
+    }
+
+    function test_topUpEntryPointDeposit_gracePeriod_skipsTopUp() public {
+        // Warp to a reasonable timestamp first to avoid underflow
+        vm.warp(10000);
+
+        MockSequencerUptimeFeed mockFeed = new MockSequencerUptimeFeed();
+        // Set sequencer in grace period
+        uint256 recentTimestamp = block.timestamp - 1800; // 30 minutes ago
+        mockFeed.setSequencerUpWithTimestamp(recentTimestamp);
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(mockFeed)));
+
+        // Fund the fee receiver with tokens
+        _depositToGasTankForWallet(gasTankUSDC, address(usdc), feeReceiver.pub, feeReceiver.pub, USDC_DEPOSIT_AMOUNT);
+
+        vm.expectEmit(true, true, true, true);
+        emit GasTankPaymaster_OracleUpdateFailed();
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.topUpEntryPointDeposit();
+    }
+
+    function test_sequencerFeed_failsCall_assumesDown() public {
+        // Deploy a mock that will revert on latestRoundData
+        MockFailingSequencerFeed failingFeed = new MockFailingSequencerFeed();
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(failingFeed)));
+
+        (bool isUp,) = gasTankUSDC.getSequencerStatus();
+        assertFalse(isUp, "Should assume sequencer is down when feed fails");
+    }
+
+    function test_sequencer_transitionFromDownToUp() public {
+        // Warp to a reasonable timestamp first to avoid underflow
+        vm.warp(10000);
+
+        MockSequencerUptimeFeed mockFeed = new MockSequencerUptimeFeed();
+
+        vm.prank(deployer.pub);
+        gasTankUSDC.setSequencerUptimeFeed(AggregatorV2V3Interface(address(mockFeed)));
+
+        // Start with sequencer down
+        mockFeed.setSequencerDown();
+        (bool isUp,) = gasTankUSDC.getSequencerStatus();
+        assertFalse(isUp, "Sequencer should be down");
+
+        // Move sequencer to up but in grace period
+        uint256 recentTimestamp = block.timestamp - 1800; // 30 minutes ago
+        mockFeed.setSequencerUpWithTimestamp(recentTimestamp);
+        (isUp,) = gasTankUSDC.getSequencerStatus();
+        assertFalse(isUp, "Should be in grace period");
+
+        // Wait past grace period
+        vm.warp(block.timestamp + 2400); // Add 40 minutes
+        (isUp,) = gasTankUSDC.getSequencerStatus();
+        assertTrue(isUp, "Should be up after grace period");
     }
 }

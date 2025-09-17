@@ -15,6 +15,7 @@ interface ISolverManager {
         address solverAddress;
         uint256 successfulSettlements;
         bool isActive;
+        bool pendingOffboard;
         string name;
         uint256 pulseFee;
     }
@@ -27,6 +28,7 @@ interface ISolverManager {
     event SolverOffboarded(address indexed solver);
     event SolverFeeUpdated(address indexed solver, uint256 oldFee, uint256 newFee);
     event SolverStatusToggled(address indexed solver, bool isActive);
+    event SolverMarkedForOffboarding(address indexed solver, uint256 pendingInvoices);
 
     /*//////////////////////////////////////////////////////////////
                             EXTERNAL FUNCTIONS
@@ -53,12 +55,6 @@ interface ISolverManager {
      */
     function offboardSolver(address _solver) external;
 
-    /**
-     * @notice Toggles the active status of a solver between active and inactive
-     * @param _solver Address of the solver to toggle
-     */
-    function toggleSolverStatus(address _solver) external;
-
     /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -68,6 +64,7 @@ interface ISolverManager {
      * @param _solver Address of the solver to query
      * @return name Human-readable name of the solver
      * @return isActive Whether the solver is currently active
+     * @return pendingOffboard Where the solver is being offboarded but has outstanding invoices
      * @return successfulSettlements Number of invoices successfully settled
      * @return activeInvoices Number of currently active invoices
      * @return pulseFee Current fee setting in cents
@@ -78,6 +75,7 @@ interface ISolverManager {
         returns (
             string memory name,
             bool isActive,
+            bool pendingOffboard,
             uint256 successfulSettlements,
             uint256 activeInvoices,
             uint256 pulseFee

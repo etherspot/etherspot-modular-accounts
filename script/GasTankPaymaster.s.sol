@@ -3,6 +3,7 @@ pragma solidity ^0.8.21;
 
 import "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
+import {AggregatorV2V3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV2V3Interface.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
@@ -42,6 +43,7 @@ contract GasTankPaymasterScript is Script {
     address public constant WRAPPED_NATIVE_TOKEN_ADDRESS = OPTIMISM_WETH;
     address public constant TOKEN_ORACLE = OPTIMISM_USDC_USD_ORACLE;
     address public constant NATIVE_TOKEN_ORACLE = OPTIMISM_WETH_USD_ORACLE;
+    address public constant SEQUENCER_FEED = address(0); // address(0) by default if no feed or change to add feed
 
     // Address settings
     address public constant DEPLOYER = 0x09FD4F6088f2025427AB1e89257A44747081Ed59;
@@ -54,6 +56,7 @@ contract GasTankPaymasterScript is Script {
     uint48 public constant TOKEN_MAX_AGE = 24 hours + 1 minutes;
     uint48 public constant NATIVE_MAX_AGE = 11 minutes;
     uint256 public constant MINIMUM_FEE_RECEIVER_TOKEN_BALANCE_FOR_TOPUP = 10;
+    uint256 public constant STALE_PRICE_MARKUP = 120; // 100 = no markup, 120 = 20% markup, 200 = 100% markup
     // UniswapHelperConfig settings
     uint256 public constant MINIMUM_SWAP_AMOUNT = 0.0001 ether;
     uint24 public constant UNISWAP_POOL_FEE = 3000; // 0.3%
@@ -80,6 +83,7 @@ contract GasTankPaymasterScript is Script {
         GasTankPaymaster.GasTankPaymasterConfig memory paymasterConfig = GasTankPaymaster.GasTankPaymasterConfig({
             tokenUsdFeed: IOracle(TOKEN_ORACLE),
             nativeUsdFeed: IOracle(NATIVE_TOKEN_ORACLE),
+            sequencerUptimeFeed: AggregatorV2V3Interface(SEQUENCER_FEED),
             minEPBalance: MINIMUM_ENTRYPOINT_BALANCE,
             cachedPriceTimestamp: 0,
             tokenMaxAge: TOKEN_MAX_AGE,
@@ -87,7 +91,8 @@ contract GasTankPaymasterScript is Script {
             postOpCost: POST_OP_COST,
             cachedTokenPrice: 0,
             markup: PRICE_MARKUP,
-            minFeeReceiverTokenBalance: MINIMUM_FEE_RECEIVER_TOKEN_BALANCE_FOR_TOPUP
+            minFeeReceiverTokenBalance: MINIMUM_FEE_RECEIVER_TOKEN_BALANCE_FOR_TOPUP,
+            stalePriceMarkup: STALE_PRICE_MARKUP
         });
 
         // Create uniswap config

@@ -8,12 +8,12 @@ import "../../src/common/Structs.sol";
 contract CredibleAccountModuleHarness is CredibleAccountModule {
     constructor(address _owner, address _hookMultiPlexer) CredibleAccountModule(_owner, _hookMultiPlexer) {}
 
-    function exposed_validateSingleCall(bytes calldata _callData) external returns (bool) {
-        return _validateSingleCall(_callData);
+    function exposed_validateSingleCall(address _sessionKey, bytes calldata _callData) external returns (bool) {
+        return _validateSingleCall(_sessionKey, _callData);
     }
 
-    function exposed_validateBatchCall(bytes calldata _callData) external returns (bool) {
-        return _validateBatchCall(_callData);
+    function exposed_validateBatchCall(address _sessionKey, bytes calldata _callData) external returns (bool) {
+        return _validateBatchCall(_sessionKey, _callData);
     }
 
     function exposed_digestSignature(bytes calldata _signatureWithProof)

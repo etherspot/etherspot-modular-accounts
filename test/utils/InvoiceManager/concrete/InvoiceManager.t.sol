@@ -584,41 +584,6 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         assertEq(testUSDC.balanceOf(solver.pub), initialSolverBalance + expectedSolverAmount);
     }
 
-    // Edge cases
-
-    function test_settleInvoice_revertIf_solverDeactivatedAfterInvoiceCreation() public withSampleInvoice {
-        address sessionKey = sessionKey.pub;
-
-        // Deactivate solver after invoice creation
-        vm.prank(solverManager.pub);
-        invoiceManager.toggleSolverStatus(solver.pub);
-
-        // Settlement should fail
-        vm.prank(settler.pub);
-        _toRevert(SolverManager.SM_SolverInactive.selector, hex"");
-        invoiceManager.settleInvoice(sessionKey);
-    }
-
-    function test_settleInvoice_success_reactivatedSolverAfterDeactivation() public withSampleInvoice {
-        address sessionKey = sessionKey.pub;
-
-        // Deactivate then reactivate solver
-        vm.prank(solverManager.pub);
-        invoiceManager.toggleSolverStatus(solver.pub);
-
-        vm.prank(solverManager.pub);
-        invoiceManager.toggleSolverStatus(solver.pub);
-
-        // Settlement should now succeed
-        uint256 initialSolverBalance = testUSDC.balanceOf(solver.pub);
-        uint256 expectedAmount = DEFAULT_USDC_AMOUNT - _calculateExpectedFeeForToken(address(testUSDC), 0);
-
-        _settleInvoiceAsSettler(sessionKey);
-
-        assertEq(testUSDC.balanceOf(solver.pub), initialSolverBalance + expectedAmount);
-        assertFalse(invoiceManager.invoiceExists(sessionKey));
-    }
-
     /*//////////////////////////////////////////////////////////////
                         CANCEL INVOICE TESTS
     //////////////////////////////////////////////////////////////*/
@@ -879,7 +844,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.prank(solverManager.pub);
         invoiceManager.onboardSolver(solver.pub, solverName, defaultFee);
 
-        (string memory name, bool isActive,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (string memory name, bool isActive,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
 
         assertEq(name, solverName, "Solver name should match");
         assertTrue(isActive, "Solver should be active");
@@ -896,7 +861,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.prank(solverManager.pub);
         invoiceManager.onboardSolver(solver.pub, solverName, customFee);
 
-        (string memory name, bool isActive,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (string memory name, bool isActive,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
 
         assertEq(name, solverName, "Solver name should match");
         assertTrue(isActive, "Solver should be active");
@@ -913,7 +878,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.prank(solverManager.pub);
         invoiceManager.onboardSolver(solver.pub, emptyName, feeAmount);
 
-        (string memory name, bool isActive,,,) = invoiceManager.getSolverData(solver.pub);
+        (string memory name, bool isActive,,,,) = invoiceManager.getSolverData(solver.pub);
 
         assertTrue(isActive, "Solver should be active");
         assertEq(name, emptyName, "Name should be empty");
@@ -930,7 +895,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.prank(solverManager.pub);
         invoiceManager.onboardSolver(solver.pub, longName, DEFAULT_FEE_AMOUNT); // Use longName, not "Solver One"
 
-        (string memory name, bool isActive,,,) = invoiceManager.getSolverData(solver.pub);
+        (string memory name, bool isActive,,,,) = invoiceManager.getSolverData(solver.pub);
 
         assertTrue(isActive, "Solver should be active");
         assertEq(name, longName, "Name should match long name");
@@ -946,8 +911,8 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
         vm.stopPrank();
 
-        (string memory s1Name, bool isActive1,,, uint256 fee1) = invoiceManager.getSolverData(solver.pub);
-        (string memory s2Name, bool isActive2,,, uint256 fee2) = invoiceManager.getSolverData(solver2.pub);
+        (string memory s1Name, bool isActive1,,,, uint256 fee1) = invoiceManager.getSolverData(solver.pub);
+        (string memory s2Name, bool isActive2,,,, uint256 fee2) = invoiceManager.getSolverData(solver2.pub);
 
         // Verify both are active
         assertTrue(isActive1, "Solver 1 should be active");
@@ -979,8 +944,9 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
     function test_offboardSolver_success() public withOnboardedSolvers {
         // Verify solver is active before offboarding
-        (, bool isActivePre,,,) = invoiceManager.getSolverData(solver.pub);
+        (, bool isActivePre, bool pendingOffboardPre,,,) = invoiceManager.getSolverData(solver.pub);
         assertTrue(isActivePre, "Solver should be active");
+        assertFalse(pendingOffboardPre, "Solver should not be pending offboard");
 
         vm.expectEmit(true, false, false, false);
         emit SolverOffboarded(solver.pub);
@@ -988,29 +954,14 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.prank(solverManager.pub);
         invoiceManager.offboardSolver(solver.pub);
 
-        (string memory name, bool isActivePost,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (string memory name, bool isActivePost, bool pendingOffboardPost,,, uint256 fee) =
+            invoiceManager.getSolverData(solver.pub);
 
         // Verify solver data still exists but marked inactive
         assertEq(name, "", "Name should still exist");
         assertEq(fee, 0, "Fee should still exist");
         assertFalse(isActivePost, "Solver should be inactive");
-    }
-
-    function test_offboardSolver_success_withExistingInvoices() public withSampleInvoice {
-        // Verify solver has invoices
-        address[] memory solverInvoices = invoiceManager.getSolverInvoices(solver.pub);
-        assertGt(solverInvoices.length, 0, "Solver should have invoices");
-
-        vm.expectEmit(true, false, false, false);
-        emit SolverOffboarded(solver.pub);
-
-        vm.prank(solverManager.pub);
-        invoiceManager.offboardSolver(solver.pub);
-
-        // Verify solver is offboarded but invoices still exist
-        (, bool isActive,,,) = invoiceManager.getSolverData(solver.pub);
-        assertFalse(isActive, "Solver should not be active");
-        assertTrue(invoiceManager.invoiceExists(sessionKey.pub), "Existing invoice should still exist");
+        assertFalse(pendingOffboardPost, "Solver should not be pending offboard as no active invoices");
     }
 
     function test_offboardSolver_success_allowsReOnboarding() public withOnboardedSolvers {
@@ -1018,7 +969,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.prank(solverManager.pub);
         invoiceManager.offboardSolver(solver.pub);
 
-        (, bool isActive1,,,) = invoiceManager.getSolverData(solver.pub);
+        (, bool isActive1,,,,) = invoiceManager.getSolverData(solver.pub);
 
         assertFalse(isActive1, "Solver should be inactive");
 
@@ -1033,11 +984,26 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         invoiceManager.onboardSolver(solver.pub, newName, newFee);
 
         // Verify solver is active with new parameters
-        (string memory name, bool isActive2,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (string memory name, bool isActive2,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
 
         assertTrue(isActive2, "Solver should be active again");
         assertEq(name, newName, "Name should be updated");
         assertEq(fee, newFee, "Fee should be updated");
+    }
+
+    function test_offboardSolver_success_pendingOffboard() public withSampleInvoice {
+        // Verify solver has invoices
+        address[] memory solverInvoices = invoiceManager.getSolverInvoices(solver.pub);
+        assertGt(solverInvoices.length, 0, "Solver should have invoices");
+
+        vm.prank(solverManager.pub);
+        invoiceManager.offboardSolver(solver.pub);
+
+        // Verify solver is not active, pending offboarded and invoices still exist
+        (, bool isActive, bool isPendingOffboard,,,) = invoiceManager.getSolverData(solver.pub);
+        assertFalse(isActive, "Solver should not be active");
+        assertTrue(isPendingOffboard, "Solver should not be active");
+        assertTrue(invoiceManager.invoiceExists(sessionKey.pub), "Existing invoice should still exist");
     }
 
     function test_offboardSolver_revertIf_notSolverManagerRole() public withOnboardedSolvers {
@@ -1063,7 +1029,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         invoiceManager.updateSolverFee(solver.pub, newFee);
 
         // Verify fee is updated
-        (,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (,,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
         assertEq(fee, newFee, "Fee should be updated");
     }
 
@@ -1077,7 +1043,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.prank(feeManager.pub);
         invoiceManager.updateSolverFee(solver.pub, newFee);
 
-        (,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (,,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
         assertEq(fee, 0, "Fee should be zero");
     }
 
@@ -1091,7 +1057,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.prank(feeManager.pub);
         invoiceManager.updateSolverFee(solver.pub, newFee);
 
-        (,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (,,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
         assertEq(fee, newFee, "Fee should be max fee");
     }
 
@@ -1104,7 +1070,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.prank(feeManager.pub);
         invoiceManager.updateSolverFee(solver.pub, currentFee);
 
-        (,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (,,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
         assertEq(fee, currentFee, "Fee should remain the same");
     }
 
@@ -1163,7 +1129,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
     }
 
     function test_getSolverData_success() public withOnboardedSolvers {
-        (string memory name, bool isActive,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (string memory name, bool isActive,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
 
         assertEq(name, "Solver One", "Name should match");
         assertEq(fee, DEFAULT_FEE_AMOUNT, "Fee should match");
@@ -1175,15 +1141,17 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         vm.prank(solverManager.pub);
         invoiceManager.offboardSolver(solver.pub);
 
-        (string memory name, bool isActive,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (string memory name, bool isActive, bool isPendingOffboard,,, uint256 fee) =
+            invoiceManager.getSolverData(solver.pub);
 
         assertEq(name, "", "Name should no longer exist");
         assertEq(fee, 0, "Fee should no longer exist");
         assertFalse(isActive, "Solver should be inactive");
+        assertFalse(isPendingOffboard, "Solver should be not be pending offboarding");
     }
 
     function test_getSolverData_success_neverOnboardedSolver() public withSetupInvoiceManager {
-        (string memory name, bool isActive,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (string memory name, bool isActive,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
 
         assertEq(name, "", "Name should be empty");
         assertEq(fee, 0, "Fee should be zero");
@@ -1278,20 +1246,6 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         assertEq(solver2Invoices[0], sessionKey2.pub, "Solver 2 invoice should match");
     }
 
-    function test_getSolverInvoices_success_dataCleared() public withSampleInvoice {
-        // Verify solver has invoices
-        address[] memory invoicesBefore = invoiceManager.getSolverInvoices(solver.pub);
-        assertEq(invoicesBefore.length, 1, "Solver should have one invoice");
-
-        // Offboard solver
-        vm.prank(solverManager.pub);
-        invoiceManager.offboardSolver(solver.pub);
-
-        // Invoices should still be accessible
-        address[] memory invoicesAfter = invoiceManager.getSolverInvoices(solver.pub);
-        assertEq(invoicesAfter.length, 0, "Offboarded solver should no longer have invoices");
-    }
-
     function test_updateSolverFee_success_switchToCustom() public withSetupInvoiceManager {
         // Start with default solver
         vm.prank(solverManager.pub);
@@ -1307,7 +1261,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         invoiceManager.updateSolverFee(solver.pub, newCustomFee);
 
         // Verify fee is updated
-        (,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (,,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
         assertEq(fee, newCustomFee, "Fee should be updated to custom amount");
     }
 
@@ -1324,7 +1278,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         invoiceManager.updateSolverFee(solver.pub, 0);
 
         // Verify fee is updated
-        (,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
+        (,,,,, uint256 fee) = invoiceManager.getSolverData(solver.pub);
         assertEq(fee, 0, "Fee should be updated to default (0)");
     }
 
@@ -1383,65 +1337,6 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
     }
 
     /*//////////////////////////////////////////////////////////////
-                  TOGGLE SOLVER STATUS TESTS
-    //////////////////////////////////////////////////////////////*/
-
-    function test_toggleSolverStatus_success_activateInactive() public withOnboardedSolvers {
-        // First deactivate solver
-        vm.prank(solverManager.pub);
-        invoiceManager.toggleSolverStatus(solver.pub);
-
-        (, bool isActive1,,,) = invoiceManager.getSolverData(solver.pub);
-        assertFalse(isActive1, "Solver should be inactive after first toggle");
-
-        // Then reactivate solver
-        vm.prank(solverManager.pub);
-        invoiceManager.toggleSolverStatus(solver.pub);
-
-        (, bool isActive2,,,) = invoiceManager.getSolverData(solver.pub);
-        assertTrue(isActive2, "Solver should be active after second toggle");
-    }
-
-    function test_toggleSolverStatus_success_deactivateActive() public withOnboardedSolvers {
-        // Verify solver is initially active
-        (, bool initialStatus,,,) = invoiceManager.getSolverData(solver.pub);
-        assertTrue(initialStatus, "Solver should be initially active");
-
-        // Deactivate solver
-        vm.prank(solverManager.pub);
-        invoiceManager.toggleSolverStatus(solver.pub);
-
-        (, bool afterToggle,,,) = invoiceManager.getSolverData(solver.pub);
-        assertFalse(afterToggle, "Solver should be inactive after toggle");
-    }
-
-    function test_toggleSolverStatus_success_preventsInvoiceCreationWhenInactive() public withOnboardedSolvers {
-        // Deactivate solver
-        vm.prank(solverManager.pub);
-        invoiceManager.toggleSolverStatus(solver.pub);
-
-        // Try to create invoice with inactive solver
-        vm.startPrank(credibleAccount.pub);
-        bytes memory createInvoiceData = _createInvoiceData(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH);
-
-        _toRevert(SolverManager.SM_SolverInactive.selector, hex"");
-        invoiceManager.createInvoice(createInvoiceData);
-        vm.stopPrank();
-    }
-
-    function test_toggleSolverStatus_revertIf_notSolverManagerRole() public withOnboardedSolvers {
-        vm.prank(alice.pub); // Not solver manager
-        vm.expectRevert(); // Should revert due to missing SOLVER_MANAGER_ROLE
-        invoiceManager.toggleSolverStatus(solver.pub);
-    }
-
-    function test_toggleSolverStatus_revertIf_invalidSolver() public withSetupInvoiceManager {
-        vm.prank(solverManager.pub);
-        _toRevert(SolverManager.SM_InvalidSolver.selector, hex"");
-        invoiceManager.toggleSolverStatus(address(0));
-    }
-
-    /*//////////////////////////////////////////////////////////////
                       VIEW FUNCTION TESTS
     //////////////////////////////////////////////////////////////*/
 
@@ -1480,15 +1375,6 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
 
         bool settleable = invoiceManager.isInvoiceSettleable(sessionKey.pub);
         assertFalse(settleable, "Invoice should not be settleable without sufficient balance");
-    }
-
-    function test_isInvoiceSettleable_success_false_inactiveSolver() public withSampleInvoice {
-        // Deactivate solver
-        vm.prank(solverManager.pub);
-        invoiceManager.toggleSolverStatus(solver.pub);
-
-        bool settleable = invoiceManager.isInvoiceSettleable(sessionKey.pub);
-        assertFalse(settleable, "Invoice should not be settleable with inactive solver");
     }
 
     function test_getInvoiceByBidHash_success() public withSampleInvoice {
@@ -1710,7 +1596,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         invoiceManager.updateSolverFee(solver.pub, 100); // 1.00 tokens
 
         // Verify fee updated
-        (,,,, uint256 pulseFee) = invoiceManager.getSolverData(solver.pub);
+        (,,,,, uint256 pulseFee) = invoiceManager.getSolverData(solver.pub);
         assertEq(pulseFee, 100);
     }
 
@@ -1749,7 +1635,7 @@ contract InvoiceManager_Concrete_Test is InvoiceManagerTestUtils {
         invoiceManager.onboardSolver(newSolver, "New Solver", 30);
 
         // Verify solver onboarded
-        (string memory name, bool isActive,,, uint256 pulseFee) = invoiceManager.getSolverData(newSolver);
+        (string memory name, bool isActive,,,, uint256 pulseFee) = invoiceManager.getSolverData(newSolver);
         assertEq(name, "New Solver", "Should match correct solver name");
         assertEq(pulseFee, 30, "Should match correct Pulse fee");
         assertTrue(isActive, "Solver should be active");

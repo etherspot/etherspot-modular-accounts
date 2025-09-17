@@ -19,6 +19,7 @@ import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWal
 import "../../../../src/common/Enums.sol";
 import "../../../../src/common/Structs.sol";
 import {CredibleAccountModuleTestUtils as TestUtils} from "../utils/CredibleAccountModuleTestUtils.sol";
+import {TestERC20} from "../../../../src/test/TestERC20.sol";
 import {TestWETH} from "../../../../src/test/TestWETH.sol";
 import {TestUniswapV2} from "../../../../src/test/TestUniswapV2.sol";
 import "../../../../src/utils/ERC4337Utils.sol";
@@ -38,6 +39,9 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     event CredibleAccountModule_ModuleUninstalled(address wallet);
     event CredibleAccountModule_SessionKeyEnabled(address sessionKey, address wallet);
     event CredibleAccountModule_SessionKeyDisabled(address sessionKey, address wallet);
+    event CredibleAccountModule_UpdatedSessionValidUntil(
+        address indexed wallet, address indexed sessionKey, uint48 oldValidUntil, uint48 newValidUntil
+    );
 
     /*//////////////////////////////////////////////////////////////
                                 SETUP
@@ -1741,7 +1745,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         TokenData[] memory maxTokenAmounts = new TokenData[](maxTokenCount);
         for (uint256 i; i < maxTokenCount; ++i) {
             // Create dummy token addresses
-            address newToken = address(uint160(i + 1));
+            address newToken = address(new TestERC20());
             maxTokenAmounts[i] = TokenData(newToken, 100e18);
             // Add new token as whitelisted in InvoiceManager
             vm.stopPrank();
@@ -2095,6 +2099,47 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         vm.stopPrank();
     }
 
+    function test_enableSessionKey_revertIf_duplicateTokens() public withRequiredModules {
+        // Create token data array with duplicate USDC token
+        TokenData[] memory tokenDataWithDuplicates = new TokenData[](3);
+        tokenDataWithDuplicates[0] = TokenData(address(usdc), 100e6); // First USDC entry
+        tokenDataWithDuplicates[1] = TokenData(address(dai), 200e18); // DAI entry
+        tokenDataWithDuplicates[2] = TokenData(address(usdc), 50e6); // Duplicate USDC entry
+
+        ResourceLock memory rl = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: address(scw),
+            sessionKey: sessionKey.pub,
+            validAfter: validAfter,
+            validUntil: validUntil,
+            solver: solver.pub,
+            bidHash: DUMMY_BID_HASH,
+            tokenData: tokenDataWithDuplicates
+        });
+
+        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl));
+
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
+        );
+
+        // Create user operation with proper signature format
+        (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata, rl, true);
+
+        bytes memory sig = _sign(root, eoa);
+        op.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+
+        // Fund the wallet with enough ETH for gas fees
+        vm.deal(address(scw), 1 ether);
+
+        // Attempt to enable the session key - should revert wrapped in UserOpEvent
+        bytes32 hash = entrypoint.getUserOpHash(op);
+        _revertUserOpEvent(hash, op.nonce, CAM.CredibleAccountModule_DuplicateToken.selector, abi.encode(address(usdc)));
+        _executeUserOp(op);
+    }
+
     /*//////////////////////////////////////////////////////////////
                            FULL E2E TESTING
     //////////////////////////////////////////////////////////////*/
@@ -2438,30 +2483,44 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         _executeUserOp(claimOp);
     }
 
+    // TODO: check this for approvals
     function test_fullE2E_inactiveSolverSettlement() public withRequiredModules {
         deal(address(usdc), address(scw), 1000e6);
 
         // Complete the full flow
         _enableSessionKey(address(scw));
 
-        bytes memory claimData = _createClaimExecution(sessionKey.pub, address(usdc), amounts[0]);
-        bytes memory claimCallData = abi.encodeCall(
-            IERC7579Account.execute,
-            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, claimData))
-        );
+        Execution[] memory batch = new Execution[](3);
+        batch[0] = Execution({
+            target: address(cam),
+            value: 0,
+            callData: abi.encodeCall(ICredibleAccountModule.claim, (sessionKey.pub, address(usdc), 100e6))
+        });
+        batch[1] = Execution({
+            target: address(cam),
+            value: 0,
+            callData: abi.encodeCall(ICredibleAccountModule.claim, (sessionKey.pub, address(usdt), 300e18))
+        });
+        batch[2] = Execution({
+            target: address(cam),
+            value: 0,
+            callData: abi.encodeCall(ICredibleAccountModule.claim, (sessionKey.pub, address(dai), 200e18))
+        });
+
+        bytes memory batchCallData =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
 
         (PackedUserOperation memory claimOp,) =
-            _createUserOpWithSignature(sessionKey, address(scw), address(cam), claimCallData);
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), batchCallData);
         _executeUserOp(claimOp);
 
-        // Deactivate the solver
+        // Deactivate the solver - should be pendingOffboard
         vm.stopPrank();
         vm.prank(deployer.pub);
-        im.toggleSolverStatus(solver.pub);
+        im.offboardSolver(solver.pub);
 
-        // Try to settle with inactive solver (should fail)
+        // Should settle as solver not fully offboarded (has this invoice as pending)
         vm.prank(deployer.pub);
-        vm.expectRevert(); // Should revert due to inactive solver
         im.settleInvoice(sessionKey.pub);
     }
 
@@ -2553,6 +2612,53 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         _executeUserOp(op);
     }
 
+    function test_claim_revertIf_sessionKeyMismatch() public withRequiredModules {
+        // Setup: Enable two session keys for the same wallet
+        _enableSessionKey(address(scw));
+
+        // Create a second session key
+        TokenData[] memory td = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            td[i] = TokenData(tokens[i], amounts[i]);
+        }
+        User memory sessionKey2 = _createUser("sessionKey2");
+        ResourceLock memory rl2 = ResourceLock({
+            smartWallet: address(scw),
+            sessionKey: sessionKey2.pub,
+            solver: solver.pub,
+            bidHash: keccak256("different-bid"),
+            chainId: block.chainid,
+            validAfter: uint48(block.timestamp),
+            validUntil: uint48(block.timestamp + 1 days),
+            tokenData: td
+        });
+        bytes memory enableSessionKeyData = abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(rl2));
+        bytes memory enableOpCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
+        );
+        (PackedUserOperation memory enableOp, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), enableOpCalldata, rl2, true);
+        bytes memory sig = _sign(root, eoa);
+        enableOp.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+        _executeUserOp(enableOp);
+
+        bytes memory claimData = _createClaimExecution(sessionKey2.pub, address(usdc), amounts[0]);
+
+        // But sign the transaction with sessionKey (not sessionKey2)
+        bytes memory opCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, claimData))
+        );
+
+        (PackedUserOperation memory op,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
+
+        // This should fail because sessionKey signed but tried to claim sessionKey2's tokens
+        vm.expectRevert(); // Or specific error
+        _executeUserOp(op);
+    }
+
     function test_validateUserOp_passesWithoutBusinessLogicValidation() public withRequiredModules {
         _enableSessionKey(address(scw));
 
@@ -2574,15 +2680,14 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         _enableSessionKey(address(scw));
 
         // Create approve operation targeting a token contract
-        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(im), amounts[0]);
-        bytes memory opCalldata = abi.encodeCall(
-            IERC7579Account.execute,
-            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(usdc), 0, approveData))
-        ); // Target is token contract (not cam), which should be allowed for approve
-        (PackedUserOperation memory op, bytes32 hash) =
-            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
+        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(cam), amounts[0]);
+        Execution[] memory batch = new Execution[](1);
+        batch[0] = Execution({target: address(usdc), value: 0, callData: approveData}); // Approve targets token
 
-        // Validation should pass for approve selector
+        bytes memory opCalldata =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
+        (PackedUserOperation memory op, bytes32 hash) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata); // Validation should pass for approve selector
         uint256 result = cam.validateUserOp(op, hash);
         assertTrue(result != VALIDATION_FAILED, "Validation should pass with approve selector");
     }
@@ -2591,7 +2696,7 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         _enableSessionKey(address(scw));
 
         // Create approve operation targeting token contract
-        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(im), amounts[0]);
+        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(cam), amounts[0]);
 
         // Create claim operation targeting cam contract
         bytes memory claimData = _createClaimExecution(sessionKey.pub, address(usdc), amounts[0]);
@@ -2735,5 +2840,287 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         emit ICredibleAccountModule.CredibleAccountModule_TokensClaimed(sessionKey.pub, address(usdc), amounts[0]);
 
         _executeUserOp(op);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                       UPDATING OF VALID UNTIL
+    //////////////////////////////////////////////////////////////*/
+
+    function test_updateSessionValidUntil_success() public withRequiredModules {
+        // Enable a session key
+        _enableSessionKey(address(scw));
+
+        // Get current session data
+        SessionData memory sessionDataBefore = cam.getSessionKeyData(sessionKey.pub);
+        uint48 originalValidUntil = sessionDataBefore.validUntil;
+        uint48 newValidUntil = originalValidUntil + 1 days;
+
+        // Update session validUntil as ORCHESTRATOR
+        vm.expectEmit(true, true, true, true);
+        emit CredibleAccountModule_UpdatedSessionValidUntil(
+            address(scw), sessionKey.pub, originalValidUntil, newValidUntil
+        );
+        vm.stopPrank();
+
+        vm.prank(deployer.pub);
+        cam.updateSessionValidUntil(address(scw), sessionKey.pub, newValidUntil);
+        vm.prank(address(scw)); // Verify the update
+        SessionData memory sessionDataAfter = cam.getSessionKeyData(sessionKey.pub);
+        assertEq(sessionDataAfter.validUntil, newValidUntil, "validUntil should be updated");
+        assertEq(sessionDataAfter.sessionKey, sessionKey.pub, "sessionKey should remain unchanged");
+        assertEq(sessionDataAfter.validAfter, sessionDataBefore.validAfter, "validAfter should remain unchanged");
+    }
+
+    function test_updateSessionValidUntil_revertWhen_nonExistentSession() public withRequiredModules {
+        address nonExistentSessionKey = makeAddr("nonExistentSessionKey");
+        uint48 newValidUntil = uint48(block.timestamp + 1 days);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(CAM.CredibleAccountModule_SessionKeyDoesNotExist.selector, nonExistentSessionKey)
+        );
+        vm.stopPrank();
+
+        vm.prank(deployer.pub);
+        cam.updateSessionValidUntil(address(scw), nonExistentSessionKey, newValidUntil);
+    }
+
+    function test_updateSessionValidUntil_revertWhen_sessionAlreadyClaimed() public withRequiredModules {
+        // Enable session and claim all tokens
+        _enableSessionKey(address(scw));
+        _claimAllTokensForSession(sessionKey.pub);
+
+        // Verify session is claimed
+        assertTrue(cam.isSessionClaimed(sessionKey.pub), "Session should be claimed");
+
+        uint48 newValidUntil = uint48(block.timestamp + 1 days);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(CAM.CredibleAccountModule_SessionKeyAlreadyClaimed.selector, sessionKey.pub)
+        );
+        vm.stopPrank();
+
+        vm.prank(deployer.pub);
+        cam.updateSessionValidUntil(address(scw), sessionKey.pub, newValidUntil);
+    }
+
+    function test_updateSessionValidUntil_revertWhen_newValidUntilNotGreater() public withRequiredModules {
+        // Enable a session key
+        _enableSessionKey(address(scw));
+
+        SessionData memory sessionData = cam.getSessionKeyData(sessionKey.pub);
+        uint48 currentValidUntil = sessionData.validUntil;
+
+        // Try to set validUntil to same value
+        vm.expectRevert(abi.encodeWithSelector(CAM.CredibleAccountModule_InvalidValidUntil.selector, currentValidUntil));
+        vm.stopPrank();
+
+        vm.prank(deployer.pub);
+        cam.updateSessionValidUntil(address(scw), sessionKey.pub, currentValidUntil);
+
+        // Try to set validUntil to lower value
+        uint48 lowerValidUntil = currentValidUntil - 1 hours;
+
+        vm.expectRevert(abi.encodeWithSelector(CAM.CredibleAccountModule_InvalidValidUntil.selector, lowerValidUntil));
+
+        vm.prank(deployer.pub);
+        cam.updateSessionValidUntil(address(scw), sessionKey.pub, lowerValidUntil);
+    }
+
+    function test_updateSessionValidUntil_revertWhen_unauthorizedCaller() public withRequiredModules {
+        // Enable a session key
+        _enableSessionKey(address(scw));
+
+        uint48 newValidUntil = uint48(block.timestamp + 1 days);
+
+        // Try to call as non-orchestrator (alice)
+        vm.expectRevert(); // AccessControl: account does not have role
+        vm.stopPrank();
+
+        vm.prank(alice.pub);
+        cam.updateSessionValidUntil(address(scw), sessionKey.pub, newValidUntil);
+    }
+
+    function test_updateSessionValidUntil_multipleUpdates() public withRequiredModules {
+        // Enable a session key
+        _enableSessionKey(address(scw));
+
+        SessionData memory initialData = cam.getSessionKeyData(sessionKey.pub);
+        uint48 firstUpdate = initialData.validUntil + 1 days;
+        uint48 secondUpdate = firstUpdate + 2 days;
+        vm.stopPrank();
+
+        // First update
+        vm.prank(deployer.pub);
+        cam.updateSessionValidUntil(address(scw), sessionKey.pub, firstUpdate);
+        vm.prank(address(scw));
+        SessionData memory afterFirst = cam.getSessionKeyData(sessionKey.pub);
+        assertEq(afterFirst.validUntil, firstUpdate, "First update should succeed");
+
+        // Second update
+        vm.prank(deployer.pub);
+        cam.updateSessionValidUntil(address(scw), sessionKey.pub, secondUpdate);
+
+        vm.prank(address(scw));
+        SessionData memory afterSecond = cam.getSessionKeyData(sessionKey.pub);
+        assertEq(afterSecond.validUntil, secondUpdate, "Second update should succeed");
+    }
+
+    function test_updateSessionValidUntil_afterExpiration() public withRequiredModules {
+        // Enable a session key with short expiry
+        address sessionWallet = address(scw);
+        TokenData[] memory td = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            td[i] = TokenData(tokens[i], amounts[i]);
+        }
+        ResourceLock memory resourceLock = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: sessionWallet,
+            sessionKey: sessionKey.pub,
+            validAfter: uint48(block.timestamp + 1 minutes),
+            validUntil: uint48(block.timestamp + 2 minutes), // validUntil - short expiry
+            solver: solver.pub,
+            bidHash: DUMMY_BID_HASH,
+            tokenData: td
+        });
+
+        bytes memory enableSessionKeyData =
+            abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(resourceLock));
+        bytes memory enableOpCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
+        );
+        (PackedUserOperation memory enableOp, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), enableOpCalldata, resourceLock, true);
+        bytes memory sig = _sign(root, eoa);
+        enableOp.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+        _executeUserOp(enableOp);
+
+        // Fast forward past expiration
+        vm.warp(block.timestamp + 3 minutes);
+
+        // Should still be able to update expired session (before claiming)
+        uint48 newValidUntil = uint48(block.timestamp + 1 days);
+        vm.stopPrank();
+
+        vm.prank(deployer.pub);
+        cam.updateSessionValidUntil(sessionWallet, sessionKey.pub, newValidUntil);
+
+        vm.prank(address(scw));
+        SessionData memory sessionData = cam.getSessionKeyData(sessionKey.pub);
+        assertEq(sessionData.validUntil, newValidUntil, "Should be able to extend expired session");
+    }
+
+    function test_integration_updateSessionThenClaim() public withRequiredModules {
+        // Enable session with short expiry
+        address sessionWallet = address(scw);
+        TokenData[] memory td = new TokenData[](tokens.length);
+        for (uint256 i; i < tokens.length; ++i) {
+            td[i] = TokenData(tokens[i], amounts[i]);
+        }
+        ResourceLock memory resourceLock = ResourceLock({
+            chainId: block.chainid,
+            smartWallet: sessionWallet,
+            sessionKey: sessionKey.pub,
+            validAfter: uint48(block.timestamp + 1 minutes),
+            validUntil: uint48(block.timestamp + 2 minutes), // validUntil - short expiry
+            solver: solver.pub,
+            bidHash: DUMMY_BID_HASH,
+            tokenData: td
+        });
+
+        bytes memory enableSessionKeyData =
+            abi.encodeWithSelector(CAM.enableSessionKey.selector, abi.encode(resourceLock));
+        bytes memory enableOpCalldata = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
+        );
+        (PackedUserOperation memory enableOp, bytes32[] memory proof, bytes32 root) =
+            _createUserOpWithResourceLock(address(scw), eoa, address(rlv), enableOpCalldata, resourceLock, true);
+        bytes memory sig = _sign(root, eoa);
+        enableOp.signature = bytes.concat(sig, abi.encodePacked(root), _packProofForSignature(proof));
+        _executeUserOp(enableOp);
+
+        // Fast forward to near expiry
+        vm.warp(block.timestamp + 90 seconds);
+
+        // Extend session
+        uint48 newValidUntil = uint48(block.timestamp + 1 hours);
+        vm.stopPrank();
+        vm.prank(deployer.pub);
+        cam.updateSessionValidUntil(sessionWallet, sessionKey.pub, newValidUntil);
+        vm.startPrank(sessionWallet);
+        // Now should be able to claim tokens
+        _claimTokensBySolver(eoa, scw, sessionKey, amounts[0], amounts[1], amounts[2]);
+
+        // Verify claim succeeded
+        assertTrue(cam.isSessionClaimed(sessionKey.pub), "Session should be claimed");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                      ORCHESTRATOR ROLE TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_grantOrchestratorRole() public withRequiredModules {
+        vm.stopPrank();
+        address newOrchestrator = makeAddr("newOrchestrator");
+
+        // Grant orchestrator role
+        vm.prank(deployer.pub);
+        cam.grantOrchestratorRole(newOrchestrator);
+
+        assertTrue(cam.hasOrchestratorRole(newOrchestrator), "Should have orchestrator role");
+
+        // New orchestrator should be able to update sessions
+        _enableSessionKey(address(scw));
+        uint48 newValidUntil = uint48(block.timestamp + 1 days + 1 minutes);
+
+        vm.prank(newOrchestrator);
+        cam.updateSessionValidUntil(address(scw), sessionKey.pub, newValidUntil);
+    }
+
+    function test_grantOrchestratorRole_revertWhen_notAdmin() public withRequiredModules {
+        vm.stopPrank();
+        address newOrchestrator = makeAddr("newOrchestrator");
+
+        vm.expectRevert(); // AccessControl: account does not have role
+
+        vm.prank(alice.pub);
+        cam.grantOrchestratorRole(newOrchestrator);
+    }
+
+    function test_revokeOrchestratorRole() public withRequiredModules {
+        vm.stopPrank();
+        address orchestrator = makeAddr("orchestrator");
+
+        // Grant then revoke
+        vm.prank(deployer.pub);
+        cam.grantOrchestratorRole(orchestrator);
+
+        assertTrue(cam.hasOrchestratorRole(orchestrator), "Should have role");
+
+        vm.prank(deployer.pub);
+        cam.revokeOrchestratorRole(orchestrator);
+
+        assertFalse(cam.hasOrchestratorRole(orchestrator), "Should not have role");
+
+        // Should no longer be able to update sessions
+        _enableSessionKey(address(scw));
+        uint48 newValidUntil = uint48(block.timestamp + 1 days);
+
+        vm.expectRevert(); // AccessControl: account does not have role
+        vm.prank(orchestrator);
+        cam.updateSessionValidUntil(address(scw), sessionKey.pub, newValidUntil);
+    }
+
+    function test_revokeOrchestratorRole_revertWhen_notAdmin() public withRequiredModules {
+        vm.expectRevert(); // AccessControl: account does not have role
+        vm.stopPrank();
+        vm.prank(alice.pub);
+        cam.revokeOrchestratorRole(deployer.pub);
+    }
+
+    function test_hasOrchestratorRole_defaultAdmin() public withRequiredModules {
+        // Deployer should have orchestrator role by default
+        assertTrue(cam.hasOrchestratorRole(deployer.pub), "Deployer should have orchestrator role");
     }
 }

@@ -178,11 +178,18 @@ contract PULSE_HealthCheck is Script {
             address solver = checkSolvers[i];
             console2.log("Solver:", solver);
 
-            (string memory name, bool isActive, uint256 successfulSettlements, uint256 activeInvoices, uint256 pulseFee)
-            = invoiceManager.getSolverData(solver);
+            (
+                string memory name,
+                bool isActive,
+                bool pendingOffboard,
+                uint256 successfulSettlements,
+                uint256 activeInvoices,
+                uint256 pulseFee
+            ) = invoiceManager.getSolverData(solver);
 
             console2.log("  Name:", name);
             console2.log("  Active:", isActive);
+            console2.log("  Pending offboard:", pendingOffboard);
             console2.log("  Successful settlements:", successfulSettlements);
             console2.log("  Active invoices:", activeInvoices);
             console2.log("  Pulse fee (cents):", pulseFee);

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
+import {AggregatorV2V3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV2V3Interface.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,7 +19,10 @@ import {TestOracle} from "../../../src/test/TestOracle.sol";
 import {TestUniswapV3} from "../../../src/test/TestUniswapV3.sol";
 import {IStakeManager} from "ERC4337/interfaces/IStakeManager.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
+import {IPaymaster} from "ERC4337/interfaces/IPaymaster.sol";
 import "../../ModularTestBase.sol";
+import {MockSequencerUptimeFeed} from "../utils/MockSequencerUptimeFeed.sol";
+import {MockFailingSequencerFeed} from "../utils/MockFailingSequencerFeed.sol";
 
 contract GasTankPaymasterTestUtils is ModularTestBase {
     using ECDSA for bytes32;
@@ -65,17 +69,22 @@ contract GasTankPaymasterTestUtils is ModularTestBase {
         vm.deal(address(uniswapV3), 10 ether);
         vm.prank(address(uniswapV3));
         weth.deposit{value: 10 ether}();
-        // Create oracles
-        usdtOracle = new TestOracle(100000000, 8);
-        usdcOracle = new TestOracle(100000000, 8);
-        nativeOracle = new TestOracle(200000000000, 8);
+        // Create oracles with realistic USD prices
+        // USDT: $1.00 (1e8 with 8 decimals)
+        usdtOracle = new TestOracle(1e8, 8);     // $1.00
+        // USDC: $1.00 (1e8 with 8 decimals)  
+        usdcOracle = new TestOracle(1e8, 8);     // $1.00
+        // ETH: $2000.00 (2000e8 with 8 decimals)
+        nativeOracle = new TestOracle(2000e8, 8); // $2000.00
         // Mint tokens to users
         deal({token: address(usdc), to: alice.pub, give: USDC_INITIAL_MINT});
         deal({token: address(usdc), to: bob.pub, give: USDC_INITIAL_MINT});
         deal({token: address(usdc), to: feeReceiver.pub, give: USDC_INITIAL_MINT});
+        deal({token: address(usdc), to: address(scw), give: USDC_INITIAL_MINT});
         deal({token: address(usdt), to: alice.pub, give: USDT_INITIAL_MINT});
         deal({token: address(usdt), to: bob.pub, give: USDT_INITIAL_MINT});
         deal({token: address(usdt), to: feeReceiver.pub, give: USDT_INITIAL_MINT});
+        deal({token: address(usdt), to: address(scw), give: USDT_INITIAL_MINT});
         vm.deal(deployer.pub, 10000 ether);
         vm.deal(alice.pub, 10 ether);
         vm.deal(bob.pub, 10 ether);
@@ -85,6 +94,7 @@ contract GasTankPaymasterTestUtils is ModularTestBase {
         GasTankPaymaster.GasTankPaymasterConfig memory paymasterConfigUSDC = GasTankPaymaster.GasTankPaymasterConfig({
             tokenUsdFeed: IOracle(address(usdcOracle)),
             nativeUsdFeed: IOracle(address(nativeOracle)),
+            sequencerUptimeFeed: AggregatorV2V3Interface(address(0)), // No sequencer feed by default
             minEPBalance: 1 ether,
             cachedPriceTimestamp: 0,
             tokenMaxAge: 24 hours,
@@ -92,11 +102,13 @@ contract GasTankPaymasterTestUtils is ModularTestBase {
             postOpCost: 35000,
             cachedTokenPrice: 0,
             markup: PRICE_DENOMINATOR * 12 / 10,
-            minFeeReceiverTokenBalance: 10 * 10 ** 6 // 10 USDC minimum
+            minFeeReceiverTokenBalance: 10 * 10 ** 6, // 10 USDC minimum
+            stalePriceMarkup: 120 // 120 = 20% markup
         });
         GasTankPaymaster.GasTankPaymasterConfig memory paymasterConfigUSDT = GasTankPaymaster.GasTankPaymasterConfig({
             tokenUsdFeed: IOracle(address(usdtOracle)),
             nativeUsdFeed: IOracle(address(nativeOracle)),
+            sequencerUptimeFeed: AggregatorV2V3Interface(address(0)), // No sequencer feed by default
             minEPBalance: 1 ether,
             cachedPriceTimestamp: 0,
             tokenMaxAge: 24 hours,
@@ -104,7 +116,8 @@ contract GasTankPaymasterTestUtils is ModularTestBase {
             postOpCost: 35000,
             cachedTokenPrice: 0,
             markup: PRICE_DENOMINATOR * 12 / 10,
-            minFeeReceiverTokenBalance: 10 * 10 ** 18 // 10 USDT minimum
+            minFeeReceiverTokenBalance: 10 * 10 ** 18, // 10 USDT minimum
+            stalePriceMarkup: 120 // 120 = 20% markup
         });
         UniswapHelper.UniswapHelperConfig memory uniswapConfig =
             UniswapHelper.UniswapHelperConfig({minSwapAmount: 0.0001 ether, uniswapPoolFee: 3000, slippage: 50});
@@ -349,5 +362,22 @@ contract GasTankPaymasterTestUtils is ModularTestBase {
             1 gwei, // maxPriorityFeePerGas
             eoa.priv // signerKey
         );
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                          SEQUENCER HELPERS
+    //////////////////////////////////////////////////////////////*/
+
+    function _setSequencerUptimeFeed(GasTankPaymaster _gasTank, AggregatorV2V3Interface _sequencerFeed) internal {
+        vm.prank(deployer.pub);
+        _gasTank.setSequencerUptimeFeed(_sequencerFeed);
+    }
+
+    function _createMockSequencerFeed() internal returns (MockSequencerUptimeFeed) {
+        return new MockSequencerUptimeFeed();
+    }
+
+    function _createFailingSequencerFeed() internal returns (MockFailingSequencerFeed) {
+        return new MockFailingSequencerFeed();
     }
 }

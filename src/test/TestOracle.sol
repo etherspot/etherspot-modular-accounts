@@ -24,7 +24,7 @@ contract TestOracle is IOracle {
         if (shouldRevert) {
             revert("Oracle failed");
         }
-        return (73786976294838215802, price, 1680509051, priceUpdatedAt, 73786976294838215802);
+        return (73786976294838215802, price, priceUpdatedAt, priceUpdatedAt, 73786976294838215802);
     }
 
     function configurePrice(int256 _price) external {

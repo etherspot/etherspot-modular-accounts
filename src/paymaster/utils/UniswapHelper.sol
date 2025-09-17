@@ -17,7 +17,7 @@ abstract contract UniswapHelper {
         /// @notice Minimum native asset amount to receive from a single swap
         uint256 minSwapAmount;
         uint24 uniswapPoolFee;
-        uint8 slippage;
+        uint16 slippage;
     }
 
     /// @notice The Uniswap V3 SwapRouter contract
@@ -58,18 +58,19 @@ abstract contract UniswapHelper {
         if (amountToSwap == 0) {
             return 0;
         }
-        // uint256 expectedOutput = tokenToWei(amountToSwap, quote);
-        uint256 amountOutMin = addSlippage(tokenToWei(amountToSwap, quote), uniswapHelperConfig.slippage);
-        // Compare expected output (in wei) vs minSwapAmount (also in wei)
-        if (amountOutMin < uniswapHelperConfig.minSwapAmount) {
+        uint256 expectedOutput = tokenToWei(amountToSwap, quote);
+
+        if (expectedOutput < uniswapHelperConfig.minSwapAmount) {
             return 0;
         }
+        uint256 amountOutMin = addSlippage(expectedOutput, uniswapHelperConfig.slippage);
+
         return swapToToken(
             address(tokenIn), address(wrappedNative), amountToSwap, amountOutMin, uniswapHelperConfig.uniswapPoolFee
         );
     }
 
-    function addSlippage(uint256 amount, uint8 slippage) private pure returns (uint256) {
+    function addSlippage(uint256 amount, uint16 slippage) private pure returns (uint256) {
         return amount * (10000 - slippage) / 10000;
     }
 

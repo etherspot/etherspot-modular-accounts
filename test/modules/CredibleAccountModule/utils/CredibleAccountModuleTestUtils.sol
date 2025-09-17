@@ -113,7 +113,6 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
             IERC7579Account.execute,
             (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, enableSessionKeyData))
         );
-        // Use the updated signature creation function
         (PackedUserOperation memory op, bytes32[] memory proof, bytes32 root) =
             _createUserOpWithResourceLock(address(scw), eoa, address(rlv), opCalldata, rl, true);
         bytes memory sig = _sign(root, eoa);
@@ -206,18 +205,56 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         uint256 _dai,
         uint256 _usdt
     ) internal {
+        bytes memory usdcApproval = abi.encodeWithSelector(IERC20.approve.selector, address(cam), _usdc);
+        bytes memory daiApproval = abi.encodeWithSelector(IERC20.approve.selector, address(cam), _dai);
+        bytes memory usdtApproval = abi.encodeWithSelector(IERC20.approve.selector, address(cam), _usdt);
         bytes memory usdcData = _createClaimExecution(_sessionKey.pub, address(usdc), _usdc);
         bytes memory daiData = _createClaimExecution(_sessionKey.pub, address(dai), _dai);
         bytes memory usdtData = _createClaimExecution(_sessionKey.pub, address(usdt), _usdt);
-        Execution[] memory batch = new Execution[](3);
-        batch[0] = Execution({target: address(cam), value: 0, callData: usdcData});
-        batch[1] = Execution({target: address(cam), value: 0, callData: daiData});
-        batch[2] = Execution({target: address(cam), value: 0, callData: usdtData});
+        Execution[] memory batch = new Execution[](6);
+        batch[0] = Execution({target: address(usdc), value: 0, callData: usdcApproval});
+        batch[1] = Execution({target: address(dai), value: 0, callData: daiApproval});
+        batch[2] = Execution({target: address(usdt), value: 0, callData: usdtApproval});
+        batch[3] = Execution({target: address(cam), value: 0, callData: usdcData});
+        batch[4] = Execution({target: address(cam), value: 0, callData: daiData});
+        batch[5] = Execution({target: address(cam), value: 0, callData: usdtData});
         bytes memory opCalldata =
             abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
         (PackedUserOperation memory op,) =
             _createUserOpWithSignature(_sessionKey, address(_scw), address(cam), opCalldata);
         // Execute the user operation
         _executeUserOp(op);
+    }
+
+    function _claimAllTokensForSession(address _sessionKey) internal {
+        // Claim USDC
+        bytes memory claimDataUSDC = _createClaimExecution(_sessionKey, address(usdc), amounts[0]);
+        bytes memory opCalldataUSDC = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, claimDataUSDC))
+        );
+        (PackedUserOperation memory opUSDC,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldataUSDC);
+        _executeUserOp(opUSDC);
+
+        // Claim DAI
+        bytes memory claimDataDAI = _createClaimExecution(_sessionKey, address(dai), amounts[1]);
+        bytes memory opCalldataDAI = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, claimDataDAI))
+        );
+        (PackedUserOperation memory opDAI,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldataDAI);
+        _executeUserOp(opDAI);
+
+        // Claim USDT
+        bytes memory claimDataUSDT = _createClaimExecution(_sessionKey, address(usdt), amounts[2]);
+        bytes memory opCalldataUSDT = abi.encodeCall(
+            IERC7579Account.execute,
+            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(cam), 0, claimDataUSDT))
+        );
+        (PackedUserOperation memory opUSDT,) =
+            _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldataUSDT);
+        _executeUserOp(opUSDT);
     }
 }

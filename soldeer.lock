@@ -34,6 +34,13 @@ checksum = "55f341818321b3f925161a72fd0dcd62e4a0a4b66785a7a932bf2bfaf96fb9d1"
 integrity = "e9ecdc364d152157431e5df5aa041ffddbe9bb1c1ad81634b1e72df9e23814e8"
 
 [[dependencies]]
+name = "smartcontractkit-chainlink-evm"
+version = "0.3.2-svr"
+url = "https://soldeer-revisions.s3.amazonaws.com/smartcontractkit-chainlink-evm/0_3_2-svr_08-09-2025_03:36:36_smartcontractkit-chainlink-evm-0.3.zip"
+checksum = "f53b65fe3cbe627626047d4abf4effcc36febe46abcc641786fd3e8ed407850a"
+integrity = "c1cfdd276452381a107bd5f6d65c8469993448b9d9823e5fd61f58b306a754cc"
+
+[[dependencies]]
 name = "solady"
 version = "0.1.8"
 url = "https://soldeer-revisions.s3.amazonaws.com/solady/0_1_8_11-02-2025_13:02:52_solady.zip"

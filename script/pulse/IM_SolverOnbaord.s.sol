@@ -42,6 +42,7 @@ contract IM_SolverOnboard is Script {
         try invoiceManager.getSolverData(solverAddress) returns (
             string memory existingName,
             bool isActive,
+            bool pendingOffboard,
             uint256 successfulSettlements,
             uint256 activeInvoices,
             uint256 existingPulseFee

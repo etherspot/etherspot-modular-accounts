@@ -16,6 +16,7 @@ import {ICredibleAccountModule as ICAM} from "../../../../src/interfaces/ICredib
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import {CredibleAccountModuleTestUtils as TestUtils} from "../utils/CredibleAccountModuleTestUtils.sol";
 import "../../../../src/common/Structs.sol";
+import {TestERC20} from "../../../../src/test/TestERC20.sol";
 
 contract CredibleAccountModule_Fuzz_Test is TestUtils {
     using ECDSA for bytes32;
@@ -36,7 +37,6 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         string memory _sessionKey,
         uint48 _validAfter,
         uint48 _validUntil,
-        address[3] memory _tokens,
         uint256[3] memory _amounts
     ) public withRequiredModules {
         User memory sk = _createUser(_sessionKey);
@@ -46,16 +46,18 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         vm.assume(_validAfter > block.timestamp);
 
         // Enable session key
-        TokenData[] memory tokenAmounts = new TokenData[](_tokens.length);
-        for (uint256 i; i < _tokens.length; ++i) {
-            vm.assume(_tokens[i] != address(0));
-            vm.assume(_amounts[i] > 0);
-            tokenAmounts[i] = TokenData(_tokens[i], _amounts[i]);
+        address[] memory tokenSet = new address[](_amounts.length);
+        TokenData[] memory tokenAmounts = new TokenData[](_amounts.length);
+        for (uint256 i; i < _amounts.length; ++i) {
+            address token = address(new TestERC20());
+            tokenSet[i] = token;
+            _amounts[i] = bound(_amounts[i], 0.5 ether + 1, 1000 ether - 1);
+            tokenAmounts[i] = TokenData(token, _amounts[i]);
             vm.stopPrank();
             vm.startPrank(deployer.pub);
             // Only whitelist if not already whitelisted
-            if (!im.isTokenWhitelisted(_tokens[i])) {
-                im.addTokenToWhitelist(_tokens[i]);
+            if (!im.isTokenWhitelisted(token)) {
+                im.addTokenToWhitelist(token);
             }
             vm.stopPrank();
             vm.startPrank(address(scw));
@@ -97,9 +99,9 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
 
         // Get locked token data and validate
         ICAM.LockedToken[] memory lockedTokens = cam.getLockedTokensForSessionKey(sk.pub);
-        assertEq(lockedTokens.length, _tokens.length);
-        for (uint256 i; i < _tokens.length; ++i) {
-            assertEq(lockedTokens[i].token, _tokens[i]);
+        assertEq(lockedTokens.length, tokenSet.length);
+        for (uint256 i; i < tokenSet.length; ++i) {
+            assertEq(lockedTokens[i].token, tokenSet[i]);
             assertEq(lockedTokens[i].lockedAmount, _amounts[i]);
             assertEq(lockedTokens[i].claimedAmount, 0);
         }
@@ -112,7 +114,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         User memory sk = _createUser(_sessionKey);
 
         for (uint256 i; i < _lockedAmounts.length; ++i) {
-            vm.assume(_lockedAmounts[i] > 0 && _lockedAmounts[i] < 1000 ether);
+            _lockedAmounts[i] = bound(_lockedAmounts[i], 0.5 ether + 1, 1000 ether - 1);
         }
 
         usdc.mint(address(scw), _lockedAmounts[0]);
@@ -159,30 +161,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
             _executeUserOp(enableOp);
         }
 
-        // Claim tokens in a separate block to reduce stack depth
-        {
-            Execution[] memory batch = new Execution[](3);
-            batch[0] = Execution({
-                target: address(cam),
-                value: 0,
-                callData: _createClaimExecution(sk.pub, address(usdc), _lockedAmounts[0])
-            });
-            batch[1] = Execution({
-                target: address(cam),
-                value: 0,
-                callData: _createClaimExecution(sk.pub, address(dai), _lockedAmounts[1])
-            });
-            batch[2] = Execution({
-                target: address(cam),
-                value: 0,
-                callData: _createClaimExecution(sk.pub, address(usdt), _lockedAmounts[2])
-            });
-
-            bytes memory opCalldata =
-                abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
-            (PackedUserOperation memory op,) = _createUserOpWithSignature(sk, address(scw), address(cam), opCalldata);
-            _executeUserOp(op);
-        }
+        _claimTokensBySolver(eoa, scw, sk, _lockedAmounts[0], _lockedAmounts[1], _lockedAmounts[2]);
 
         // Disable the session key
         vm.startPrank(address(scw));
@@ -196,7 +175,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
 
     function testFuzz_claimingTokensBySolver(uint256[3] memory _claimAmounts) public withRequiredModules {
         for (uint256 i; i < _claimAmounts.length; ++i) {
-            vm.assume(_claimAmounts[i] > 0 && _claimAmounts[i] < 1000 ether);
+            _claimAmounts[i] = bound(_claimAmounts[i], 0.5 ether + 1, 1000 ether - 1);
         }
 
         usdc.mint(address(scw), _claimAmounts[0]);
@@ -206,6 +185,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         dai.approve(address(cam), _claimAmounts[1]);
         usdt.approve(address(cam), _claimAmounts[2]);
 
+        vm.startPrank(address(scw));
         // Enable session key
         TokenData[] memory tokenAmounts = new TokenData[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
@@ -251,22 +231,21 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
         }
     }
 
-    function testFuzz_validateUserOp_passesWithApproveSelector(
-        address tokenAddress,
-        address spender,
-        uint256 approveAmount
-    ) public withRequiredModules {
+    function testFuzz_validateUserOp_passesWithApproveSelector(address tokenAddress, uint256 approveAmount)
+        public
+        withRequiredModules
+    {
         vm.assume(tokenAddress != address(0));
-        vm.assume(spender != address(0));
         vm.assume(approveAmount > 0);
 
         _enableSessionKey(address(scw));
 
-        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, spender, approveAmount);
-        bytes memory opCalldata = abi.encodeCall(
-            IERC7579Account.execute,
-            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(tokenAddress, 0, approveData))
-        );
+        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(cam), approveAmount);
+        Execution[] memory batch = new Execution[](1);
+        batch[0] = Execution({target: tokenAddress, value: 0, callData: approveData});
+
+        bytes memory opCalldata =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
         (PackedUserOperation memory op, bytes32 hash) =
             _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
 
@@ -283,7 +262,7 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
 
         _enableSessionKey(address(scw));
 
-        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(im), approveAmount);
+        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(cam), approveAmount);
         bytes memory claimData = _createClaimExecution(sessionKey.pub, address(usdc), claimAmount);
 
         Execution[] memory batch = new Execution[](2);
@@ -302,8 +281,8 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
     function testFuzz_validateUserOp_passesWithMultipleApprovesInBatch() public withRequiredModules {
         _enableSessionKey(address(scw));
 
-        bytes memory approveUsdc = abi.encodeWithSelector(IERC20.approve.selector, address(im), amounts[0]);
-        bytes memory approveDai = abi.encodeWithSelector(IERC20.approve.selector, address(im), amounts[1]);
+        bytes memory approveUsdc = abi.encodeWithSelector(IERC20.approve.selector, address(cam), amounts[0]);
+        bytes memory approveDai = abi.encodeWithSelector(IERC20.approve.selector, address(cam), amounts[1]);
 
         Execution[] memory batch = new Execution[](2);
         batch[0] = Execution({target: address(usdc), value: 0, callData: approveUsdc});
@@ -321,11 +300,12 @@ contract CredibleAccountModule_Fuzz_Test is TestUtils {
     function testFuzz_validateUserOp_passesWithZeroAmountApprove() public withRequiredModules {
         _enableSessionKey(address(scw));
 
-        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(im), 0);
-        bytes memory opCalldata = abi.encodeCall(
-            IERC7579Account.execute,
-            (ModeLib.encodeSimpleSingle(), ExecutionLib.encodeSingle(address(usdc), 0, approveData))
-        );
+        bytes memory approveData = abi.encodeWithSelector(IERC20.approve.selector, address(cam), 0);
+        Execution[] memory batch = new Execution[](1);
+        batch[0] = Execution({target: address(usdc), value: 0, callData: approveData});
+
+        bytes memory opCalldata =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(batch)));
         (PackedUserOperation memory op, bytes32 hash) =
             _createUserOpWithSignature(sessionKey, address(scw), address(cam), opCalldata);
 

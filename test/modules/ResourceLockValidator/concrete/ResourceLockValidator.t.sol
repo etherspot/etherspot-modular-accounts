@@ -22,6 +22,7 @@ import {
 } from "../../../../src/common/Constants.sol";
 import {HookType, ResourceLock, TokenData} from "../../../../src/common/Structs.sol";
 import {ResourceLockValidatorTestUtils as TestUtils} from "../utils/ResourceLockValidatorTestUtils.sol";
+import {TestERC20} from "../../../../src/test/TestERC20.sol";
 
 contract ResourceLockValidator_Concrete_Test is TestUtils {
     using ECDSA for bytes32;
@@ -382,7 +383,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         // Create TokenData array with 10 entries
         TokenData[] memory tokens = new TokenData[](5);
         for (uint256 i; i < 5; ++i) {
-            address newToken = vm.randomAddress();
+            address newToken = address(new TestERC20());
             tokens[i] = TokenData({token: newToken, amount: vm.randomUint()});
             // Add new token to whitelisted tokens in InvoiceManager
             _addTokenToInvoiceManagerWhitelist(newToken);
@@ -476,7 +477,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         // Create TokenData array with 10 entries
         TokenData[] memory tokens = new TokenData[](5);
         for (uint256 i; i < 5; ++i) {
-            address newToken = vm.randomAddress();
+            address newToken = address(new TestERC20());
             tokens[i] = TokenData({token: newToken, amount: vm.randomUint()});
             _addTokenToInvoiceManagerWhitelist(newToken);
         }
@@ -556,13 +557,13 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
     function test_sessionKey_extraction_singleVsBatch() public withRequiredModules {
         // Create identical ResourceLock for both calls
         ResourceLock memory rl = _generateResourceLock(address(scw), sessionKey.pub);
-        
+
         console2.log("Expected session key:", sessionKey.pub);
         console2.log("ResourceLock session key:", rl.sessionKey);
-        
+
         // Generate proof and merkle root
         (bytes32[] memory proof, bytes32 merkleRoot,) = getTestProof(_buildResourceLockHash(rl), true);
-        
+
         // Create SINGLE call UserOp
         PackedUserOperation memory singleOp = _createUserOp(address(scw), address(rlv));
         singleOp.callData = abi.encodeCall(
@@ -574,7 +575,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
                 )
             )
         );
-        
+
         // Create BATCH call UserOp with identical ResourceLock
         PackedUserOperation memory batchOp = _createUserOp(address(scw), address(rlv));
         Execution[] memory executions = new Execution[](1);
@@ -583,20 +584,15 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
             value: 0,
             callData: abi.encodeWithSelector(cam.enableSessionKey.selector, abi.encode(rl))
         });
-        batchOp.callData = abi.encodeCall(
-            IERC7579Account.execute,
-            (
-                ModeLib.encodeSimpleBatch(),
-                ExecutionLib.encodeBatch(executions)
-            )
-        );
-        
+        batchOp.callData =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(executions)));
+
         // Sign both operations with same signature
         bytes memory sig = _sign(merkleRoot, eoa);
         bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
         singleOp.signature = compositeSig;
         batchOp.signature = compositeSig;
-        
+
         console2.log("\n=== TESTING SINGLE CALL ===");
         // Test single call - should extract session key correctly
         try rlv.validateUserOp(singleOp, entrypoint.getUserOpHash(singleOp)) {
@@ -606,7 +602,7 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         } catch (bytes memory lowLevelData) {
             console2.log("Single call failed with low-level error");
         }
-        
+
         console2.log("\n=== TESTING BATCH CALL ===");
         // Test batch call - should extract same session key
         try rlv.validateUserOp(batchOp, entrypoint.getUserOpHash(batchOp)) {
@@ -616,28 +612,28 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         } catch (bytes memory lowLevelData) {
             console2.log("Batch call failed with low-level error");
         }
-        
+
         console2.log("\n=== CALLDATA COMPARISON ===");
         console2.log("Single call data length:", singleOp.callData.length);
         console2.log("Batch call data length:", batchOp.callData.length);
-        
+
         // Log the encoded ResourceLock data for inspection
         bytes memory encodedRL = abi.encode(rl);
         console2.log("Encoded ResourceLock length:", encodedRL.length);
-        
+
         // Log first 128 bytes of encoded ResourceLock in chunks
         bytes32 chunk1;
         bytes32 chunk2;
         bytes32 chunk3;
         bytes32 chunk4;
-        
+
         assembly {
-            chunk1 := mload(add(encodedRL, 32))   // bytes 0-31
-            chunk2 := mload(add(encodedRL, 64))   // bytes 32-63
-            chunk3 := mload(add(encodedRL, 96))   // bytes 64-95  
-            chunk4 := mload(add(encodedRL, 128))  // bytes 96-127
+            chunk1 := mload(add(encodedRL, 32)) // bytes 0-31
+            chunk2 := mload(add(encodedRL, 64)) // bytes 32-63
+            chunk3 := mload(add(encodedRL, 96)) // bytes 64-95
+            chunk4 := mload(add(encodedRL, 128)) // bytes 96-127
         }
-        
+
         console2.log("Encoded RL chunk 1 (0-31):");
         console2.logBytes32(chunk1);
         console2.log("Encoded RL chunk 2 (32-63):");
