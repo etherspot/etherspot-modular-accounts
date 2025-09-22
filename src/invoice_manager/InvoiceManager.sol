@@ -366,7 +366,7 @@ contract InvoiceManager is IInvoiceManager, SolverManager, TokenManager, Reentra
     function isInvoiceSettleable(address _sessionKey) external view returns (bool) {
         Invoice storage invoice = invoices[_sessionKey];
         if (invoice.createdAt == 0) return false;
-        if (!_isSolverActive(invoice.data.solver)) return false;
+        if (!_canSolverSettle(invoice.data.solver)) return false;
 
         InvoiceTokenData[] storage tokenData = invoiceTokenData[_sessionKey];
         uint256 tokenDataLength = tokenData.length;

@@ -18,8 +18,6 @@ import {IHookMultiPlexer} from "../../interfaces/IHookMultiPlexer.sol";
 import {IInvoiceManager} from "../../interfaces/IInvoiceManager.sol";
 import "../../common/Structs.sol";
 
-import {console2} from "forge-std/console2.sol";
-
 contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using ModeLib for ModeCode;
@@ -301,8 +299,11 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         if (sd.sessionKey == address(0)) revert CredibleAccountModule_SessionKeyDoesNotExist(_sessionKey);
         if (isSessionClaimed(_sessionKey)) revert CredibleAccountModule_SessionKeyAlreadyClaimed(_sessionKey);
         uint48 old = sd.validUntil;
-        if (old >= _validUntil) revert CredibleAccountModule_InvalidValidUntil(_validUntil);
+        if (old >= _validUntil && _validUntil <= block.timestamp) {
+            revert CredibleAccountModule_InvalidValidUntil(_validUntil);
+        }
         sd.validUntil = _validUntil;
+        sd.live = true;
         emit CredibleAccountModule_UpdatedSessionValidUntil(_wallet, _sessionKey, old, sd.validUntil);
     }
 
@@ -813,7 +814,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         bytes4 selector = _validateSelector(bytes4(execData[0:4]));
         if (selector == bytes4(0)) return false;
         if (selector == IERC20.approve.selector) {
-            return _validateApproveCall(target, execData);
+            return _validateApproveCall(execData);
         }
         if (target != address(this)) return false; // If not approve call must call this contract
         if (selector == this.claim.selector) {
@@ -836,7 +837,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
             bytes4 selector = _validateSelector(bytes4(execs[i].callData[0:4]));
             if (selector == bytes4(0)) return false;
             if (selector == IERC20.approve.selector) {
-                if (!_validateApproveCall(execs[i].target, execs[i].callData)) return false;
+                if (!_validateApproveCall(execs[i].callData)) return false;
                 continue;
             }
             if (execs[i].target != address(this)) return false; // If not approve call must call this contract
@@ -849,14 +850,11 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
 
     /**
      * @notice Validates ERC20 approve calls to ensure only this contract can be approved as spender
-     * @param target The target contract address (should be an ERC20 token)
      * @param callData The approve function call data
      * @return bool True if the approve call is valid (spender is this contract), false otherwise
      */
-    function _validateApproveCall(address target, bytes calldata callData) internal view returns (bool) {
+    function _validateApproveCall(bytes calldata callData) internal view returns (bool) {
         // Decode approve(address spender, uint256 amount) parameters
-        console2.log("APPROVE CALLDATA.LENGTH:", callData.length);
-        console2.logBytes(callData);
         if (callData.length != 68) return false;
         // Skip the 4-byte selector and decode the parameters
         (address spender, uint256 amount) = abi.decode(callData[4:], (address, uint256));
