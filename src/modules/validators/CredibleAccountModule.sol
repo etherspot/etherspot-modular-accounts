@@ -299,7 +299,7 @@ contract CredibleAccountModule is ICredibleAccountModule, AccessControlEnumerabl
         if (sd.sessionKey == address(0)) revert CredibleAccountModule_SessionKeyDoesNotExist(_sessionKey);
         if (isSessionClaimed(_sessionKey)) revert CredibleAccountModule_SessionKeyAlreadyClaimed(_sessionKey);
         uint48 old = sd.validUntil;
-        if (old >= _validUntil && _validUntil <= block.timestamp) {
+        if (old >= _validUntil || _validUntil <= block.timestamp) {
             revert CredibleAccountModule_InvalidValidUntil(_validUntil);
         }
         sd.validUntil = _validUntil;
