@@ -415,7 +415,8 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         vm.prank(address(entrypoint));
         (bytes memory context, uint256 validationData) =
             gasTankUSDC.validatePaymasterUserOp(userOp, keccak256("dummy"), 1 ether);
-        assertEq(context.length, 64);
+        // context includes userOp.sender, userOpHash, and preChargeNative
+        assertEq(context.length, 96);
         bool sigFailed = (validationData & 1) == 1;
         uint48 returnedValidUntil = uint48(validationData >> 160);
         uint48 returnedValidAfter = uint48(validationData >> 208);
@@ -467,7 +468,8 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         vm.prank(address(entrypoint));
         (bytes memory context, uint256 validationData) =
             gasTankUSDC.validatePaymasterUserOp(userOp, keccak256("dummy"), 1 ether);
-        assertEq(context.length, 64);
+        // context includes userOp.sender, userOpHash, preChargeNative
+        assertEq(context.length, 96);
         uint48 returnedValidUntil = uint48(validationData >> 160);
         uint48 returnedValidAfter = uint48(validationData >> 208);
         assertEq(returnedValidUntil, validUntil);

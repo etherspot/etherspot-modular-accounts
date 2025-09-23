@@ -127,10 +127,11 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     event GasTankPaymaster_UserOperationSponsored(
         address indexed sender,
         address indexed sponsor,
+        bytes32 indexed userOpHash,
         uint256 actualGasCost,
         uint256 actualChargeNative,
         uint256 preChargeNative,
-        uint256 indexed chainId,
+        uint256 chainId,
         bool opReverted,
         uint256 tokenPriceUsed,
         uint256 estimatedTokenCost,
@@ -519,16 +520,19 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     /**
      * @notice Validates a user operation for sponsorship
      * @param userOp The user operation to validate
+     * @param userOpHash The hash of the UserOperation
      * @param requiredPreFund Required prefund amount
      * @return context Encoded context for post-operation processing
      * @return validationData Validation result and timing data
      * @dev Rejects users with pending repayments to prevent withdrawal escape attacks
      */
-    function _validatePaymasterUserOp(
-        PackedUserOperation calldata userOp,
-        bytes32, /*userOpHash*/
-        uint256 requiredPreFund
-    ) internal view override whenNotPaused returns (bytes memory context, uint256 validationData) {
+    function _validatePaymasterUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256 requiredPreFund)
+        internal
+        view
+        override
+        whenNotPaused
+        returns (bytes memory context, uint256 validationData)
+    {
         (uint48 validUntil, uint48 validAfter, bytes calldata signature) =
             parsePaymasterAndData(userOp.paymasterAndData);
         // Signature validation
@@ -547,7 +551,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         }
         uint256 preChargeNative = requiredPreFund + (refundPostopCost * maxFeePerGas);
         // Include more context for backend processing
-        context = abi.encode(userOp.sender, preChargeNative);
+        context = abi.encode(userOp.sender, userOpHash, preChargeNative);
         return (context, _packValidationData(false, validUntil, validAfter));
     }
 
@@ -563,7 +567,8 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         internal
         override
     {
-        (address userOpSender, uint256 preChargeNative) = abi.decode(context, (address, uint256));
+        (address userOpSender, bytes32 userOpHash, uint256 preChargeNative) =
+            abi.decode(context, (address, bytes32, uint256));
         uint256 priceForTopUp;
         bool usingStaleCache = false;
 
@@ -601,6 +606,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         emit GasTankPaymaster_UserOperationSponsored(
             userOpSender,
             feeReceiver,
+            userOpHash,
             actualGasCost,
             actualGasCost + paymasterConfig.postOpCost * actualUserOpFeePerGas,
             preChargeNative,
