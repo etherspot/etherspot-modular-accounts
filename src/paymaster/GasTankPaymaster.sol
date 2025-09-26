@@ -90,6 +90,18 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         uint256 stalePriceMarkup;
     }
 
+    struct PostOpContext {
+        address userOpSender;
+        bytes32 userOpHash;
+        uint256 estimatedTokenCost;
+        uint256 totalActualGasCost;
+        uint256 priceForCalculation;
+        uint256 actualTokenCost;
+        uint256 userPenalty;
+        uint256 currentLocalBalance;
+        bool usingStalePrice;
+    }
+
     /*//////////////////////////////////////////////////////////////
                                 MAPPINGS
     //////////////////////////////////////////////////////////////*/
@@ -130,11 +142,9 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         bytes32 indexed userOpHash,
         uint256 actualGasCost,
         uint256 actualChargeNative,
-        uint256 preChargeNative,
-        uint256 chainId,
         bool opReverted,
         uint256 tokenPriceUsed,
-        uint256 estimatedTokenCost,
+        uint256 actualTokenCost,
         bool priceWasStale
     );
     /// @notice Emitted when a sponsored transaction is repaid
@@ -535,6 +545,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
     {
         (uint48 validUntil, uint48 validAfter, bytes calldata signature) =
             parsePaymasterAndData(userOp.paymasterAndData);
+
         // Signature validation
         if (signature.length != 64 && signature.length != 65) {
             revert GasTankPaymaster_InvalidPaymasterAndDataSignatureLength();
@@ -543,6 +554,10 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         if (verifyingSigner != ECDSA.recover(hash, signature)) {
             return ("", _packValidationData(true, validUntil, validAfter));
         }
+
+        // Get local balance of user
+        uint256 localUserBalance = balances[userOp.sender];
+
         // Calculate comprehensive charge information
         uint256 maxFeePerGas = userOp.unpackMaxFeePerGas();
         uint256 refundPostopCost = paymasterConfig.postOpCost;
@@ -550,8 +565,13 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
             revert GasTankPaymaster_PostOpGasLimitTooLow();
         }
         uint256 preChargeNative = requiredPreFund + (refundPostopCost * maxFeePerGas);
-        // Include more context for backend processing
-        context = abi.encode(userOp.sender, userOpHash, preChargeNative);
+
+        // Estimate token cost using cached price (gas-efficient, no oracle calls in validation)
+        uint256 estimatedTokenCost = _calculateTokenCostFromCache(preChargeNative, true);
+
+        // Include comprehensive context for backend processing and _postOp
+        context = abi.encode(userOp.sender, userOpHash, estimatedTokenCost);
+
         return (context, _packValidationData(false, validUntil, validAfter));
     }
 
@@ -567,55 +587,44 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         internal
         override
     {
-        (address userOpSender, bytes32 userOpHash, uint256 preChargeNative) =
-            abi.decode(context, (address, bytes32, uint256));
-        uint256 priceForTopUp;
-        bool usingStaleCache = false;
+        PostOpContext memory ctx;
 
-        // Try to get fresh price for EntryPoint top-up
-        try this.updateCachedPrice(false) returns (uint256 freshPrice) {
-            if (freshPrice > 0) {
-                priceForTopUp = freshPrice;
-                // Fresh price obtained - no stale cache usage
-            } else {
-                priceForTopUp = paymasterConfig.cachedTokenPrice;
-                // Using cached price - check if it's stale
-                usingStaleCache = _isCachedPriceStale();
-            }
-        } catch {
-            priceForTopUp = paymasterConfig.cachedTokenPrice;
-            // Using cached price due to oracle failure - check if it's stale
-            usingStaleCache = _isCachedPriceStale();
+        (ctx.userOpSender, ctx.userOpHash, ctx.estimatedTokenCost) = abi.decode(context, (address, bytes32, uint256));
+
+        ctx.totalActualGasCost = actualGasCost + (paymasterConfig.postOpCost * actualUserOpFeePerGas);
+
+        ctx.priceForCalculation = updateCachedPrice(false);
+        if (ctx.priceForCalculation == 0) {
+            ctx.priceForCalculation = paymasterConfig.cachedTokenPrice;
+            ctx.usingStalePrice = _isCachedPriceStale();
         }
 
-        // Calculate total gas cost in native currency (wei)
-        uint256 totalGasCostWei = actualGasCost + (paymasterConfig.postOpCost * actualUserOpFeePerGas);
+        ctx.actualTokenCost = _calculateTokenCostFromCache(ctx.totalActualGasCost, ctx.usingStalePrice);
 
-        // Calculate reservation using direct USD-based approach
-        uint256 estimatedTokenCost = _calculateTokenReservation(totalGasCostWei, usingStaleCache);
-
-        // Reserve the calculated amount
-        if (estimatedTokenCost > 0) {
-            reservedForRepayment[userOpSender] += estimatedTokenCost;
-            emit GasTankPaymaster_TokensReserved(userOpSender, estimatedTokenCost);
+        if (ctx.estimatedTokenCost > ctx.actualTokenCost) {
+            uint256 unusedTokens = ctx.estimatedTokenCost - ctx.actualTokenCost;
+            ctx.userPenalty = unusedTokens / 10;
         }
 
-        // Top up EntryPoint if required
-        _topUpEntryPointDeposit(priceForTopUp);
-        bool opReverted = mode == PostOpMode.opReverted;
+        ctx.currentLocalBalance = balances[ctx.userOpSender];
+        if (ctx.currentLocalBalance >= ctx.actualTokenCost && ctx.actualTokenCost > 0) {
+            reservedForRepayment[ctx.userOpSender] += ctx.actualTokenCost + ctx.userPenalty;
+            emit GasTankPaymaster_TokensReserved(ctx.userOpSender, ctx.actualTokenCost + ctx.userPenalty);
+        }
+
         emit GasTankPaymaster_UserOperationSponsored(
-            userOpSender,
+            ctx.userOpSender,
             feeReceiver,
-            userOpHash,
+            ctx.userOpHash,
             actualGasCost,
-            actualGasCost + paymasterConfig.postOpCost * actualUserOpFeePerGas,
-            preChargeNative,
-            block.chainid,
-            opReverted,
-            priceForTopUp, // tokenPriceUsed for top-up
-            estimatedTokenCost, // reserved token amount
-            usingStaleCache // is the cached price stale?
+            ctx.totalActualGasCost,
+            mode == PostOpMode.opReverted,
+            ctx.priceForCalculation,
+            ctx.actualTokenCost,
+            ctx.usingStalePrice
         );
+
+        _topUpEntryPointDeposit(ctx.priceForCalculation);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -904,42 +913,24 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         return (cacheAge >= paymasterConfig.tokenMaxAge || cacheAge >= paymasterConfig.nativeMaxAge);
     }
 
-    function _calculateTokenReservation(uint256 totalGasCostWei, bool usingStaleCache) private view returns (uint256) {
-        // Get oracle prices directly
-        try paymasterConfig.nativeUsdFeed.latestRoundData() returns (
-            uint80, int256 nativePrice, uint256, uint256, uint80
-        ) {
-            try paymasterConfig.tokenUsdFeed.latestRoundData() returns (
-                uint80, int256 tokenPrice, uint256, uint256, uint80
-            ) {
-                if (nativePrice > 0 && tokenPrice > 0) {
-                    // Calculate gas cost in USD
-                    // totalGasCostWei * nativePrice (USD per ETH) / (1e18 * 10^nativeOracleDecimals)
-                    uint256 gasCostUsd = (totalGasCostWei * uint256(nativePrice))
-                        / (1e18 * (10 ** paymasterConfig.nativeUsdFeed.decimals()));
+    function _calculateTokenCostFromCache(uint256 totalGasCostWei, bool applyStaleBuffer)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 cachedPrice = paymasterConfig.cachedTokenPrice;
+        if (cachedPrice == 0) return 0;
 
-                    // Apply buffer only if using stale cached price
-                    if (usingStaleCache) {
-                        gasCostUsd = gasCostUsd * paymasterConfig.stalePriceMarkup / 100;
-                    }
+        // Apply stale price buffer if needed
+        if (applyStaleBuffer && _isCachedPriceStale()) {
+            cachedPrice = cachedPrice * paymasterConfig.stalePriceMarkup / 100;
+        }
 
-                    // Convert USD to token units
-                    // gasCostUsd * 10^(tokenDecimals + tokenOracleDecimals) / tokenPrice
-                    uint8 tokenDecimals = IERC20Metadata(address(token)).decimals();
-                    uint256 tokensToReserve = (
-                        gasCostUsd * (10 ** (tokenDecimals + paymasterConfig.tokenUsdFeed.decimals()))
-                    ) / uint256(tokenPrice);
+        // Use cached price to calculate tokens - this maintains precision from original oracle calculation
+        uint256 tokensNeeded = weiToToken(totalGasCostWei, cachedPrice);
 
-                    // Apply markup to user
-                    tokensToReserve = tokensToReserve * paymasterConfig.markup / PRICE_DENOMINATOR;
-
-                    return tokensToReserve;
-                }
-            } catch {}
-        } catch {}
-
-        // Fallback: if oracle calls fail, return 0 (no reservation)
-        return 0;
+        // Apply markup
+        return tokensNeeded * paymasterConfig.markup / PRICE_DENOMINATOR;
     }
 
     /*//////////////////////////////////////////////////////////////

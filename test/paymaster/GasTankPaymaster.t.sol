@@ -758,6 +758,8 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         _depositToGasTank(gasTankUSDC, address(usdc), alice.pub, aliceDeposit);
         _depositToGasTank(gasTankUSDC, address(usdc), bob.pub, bobDeposit);
 
+        gasTankUSDC.updateCachedPrice(true);
+
         // Both users start with full available balance
         assertEq(gasTankUSDC.getReservedAmount(alice.pub), 0);
         assertEq(gasTankUSDC.getReservedAmount(bob.pub), 0);
@@ -815,6 +817,8 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         // Setup: Execute sponsored transaction to create reservations
         uint256 initialDeposit = 1000 * 10 ** 6;
         _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
+
+        gasTankUSDC.updateCachedPrice(true);
 
         vm.deal(address(scw), 5 ether);
         vm.prank(address(scw));
@@ -874,6 +878,8 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         uint256 initialDeposit = 1000 * 10 ** 6;
         _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
 
+        gasTankUSDC.updateCachedPrice(true);
+
         vm.deal(address(scw), 5 ether);
         vm.prank(address(scw));
         gasTankUSDC.deposit{value: 5 ether}();
@@ -924,6 +930,8 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         uint256 initialDeposit = 1000 * 10 ** 6;
         _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
 
+        gasTankUSDC.updateCachedPrice(true);
+
         vm.deal(address(scw), 5 ether);
         vm.prank(address(scw));
         gasTankUSDC.deposit{value: 5 ether}();
@@ -970,6 +978,8 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         // Setup: Execute sponsored transaction
         uint256 initialDeposit = 1000 * 10 ** 6;
         _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
+
+        gasTankUSDC.updateCachedPrice(true);
 
         vm.deal(address(scw), 5 ether);
         vm.prank(address(scw));
@@ -1137,6 +1147,8 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         uint256 initialDeposit = 1000 * 10 ** 6; // 1000 USDC
         _depositToGasTank(gasTankUSDC, address(usdc), address(scw), initialDeposit);
 
+        gasTankUSDC.updateCachedPrice(true);
+
         // Ensure EntryPoint has enough balance to avoid top-up complications
         vm.deal(address(scw), 5 ether);
         vm.prank(address(scw));
@@ -1171,7 +1183,7 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         assertGt(reservedAmount, 0); // Some amount should be reserved
 
         uint256 availableBalance = gasTankUSDC.gasTankAvailableBalance(address(scw));
-        console2.log("AVAILABE BALANCE:", availableBalance);
+        console2.log("AVAILABLE BALANCE:", availableBalance);
         assertEq(availableBalance, initialDeposit - reservedAmount);
 
         // Step 3: User attempts to withdraw all funds (escape attack) - should fail
@@ -1256,6 +1268,8 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         _depositToGasTank(gasTankUSDC, address(usdc), alice.pub, aliceDeposit);
         _depositToGasTank(gasTankUSDC, address(usdc), bob.pub, bobDeposit);
 
+        gasTankUSDC.updateCachedPrice(true);
+
         // Ensure EntryPoint has enough balance
         vm.deal(alice.pub, 5 ether);
         vm.prank(alice.pub);
@@ -1334,6 +1348,8 @@ contract GasTankPaymasterTest is GasTankPaymasterTestUtils {
         // Setup: Execute multiple transactions to build up reservations
         uint256 largeDeposit = 2000 * 10 ** 6;
         _depositToGasTank(gasTankUSDC, address(usdc), address(scw), largeDeposit);
+
+        gasTankUSDC.updateCachedPrice(true);
 
         vm.deal(address(scw), 10 ether);
         vm.prank(address(scw));
