@@ -145,6 +145,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
         bool opReverted,
         uint256 tokenPriceUsed,
         uint256 actualTokenCost,
+        uint256 userPenalty,
         bool priceWasStale
     );
     /// @notice Emitted when a sponsored transaction is repaid
@@ -621,6 +622,7 @@ contract GasTankPaymaster is BasePaymaster, UniswapHelper {
             mode == PostOpMode.opReverted,
             ctx.priceForCalculation,
             ctx.actualTokenCost,
+            ctx.userPenalty,
             ctx.usingStalePrice
         );
 
