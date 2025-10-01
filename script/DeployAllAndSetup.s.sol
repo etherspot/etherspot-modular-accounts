@@ -9,12 +9,13 @@ import {Bootstrap} from "../src/utils/Bootstrap.sol";
 import {ModularEtherspotWallet} from "../src/wallet/ModularEtherspotWallet.sol";
 import {ModularEtherspotWalletFactory} from "../src/wallet/ModularEtherspotWalletFactory.sol";
 import {MultipleOwnerECDSAValidator} from "../src/modules/validators/MultipleOwnerECDSAValidator.sol";
+import {HookMultiPlexer} from "../src/modules/hooks/HookMultiPlexer.sol";
 
 /**
  * @author Etherspot.
  * @title  DeployAllAndSetupScript.
  * @dev Deployment script for all modular contracts. Deploys:
- * ModularEtherspotWallet implementation, ModularEtherspotWalletFactory, Bootstrap and MultipleOwnerECDSAValidator.
+ * ModularEtherspotWallet implementation, ModularEtherspotWalletFactory, Bootstrap, MultipleOwnerECDSAValidator, HookMultiPlexer.
  * Stakes factory contract with EntryPoint.
  *
  * To run script: forge script script/DeployAllAndSetup.s.sol:DeployAllAndSetupScript --broadcast -vvvv --rpc-url <chain name>
@@ -29,11 +30,13 @@ contract DeployAllAndSetupScript is Script {
                   Replace These Values With Your Own
     //////////////////////////////////////////////////////////////*/
     address public constant DEPLOYER = 0x09FD4F6088f2025427AB1e89257A44747081Ed59;
-    address public constant EXPECTED_IMPLEMENTATION = 0x339eAB59e54fE25125AceC3225254a0cBD305A7b;
-    address public constant EXPECTED_FACTORY = 0x2A40091f044e48DEB5C0FCbc442E443F3341B451;
-    address public constant EXPECTED_BOOTSTRAP = 0x0D5154d7751b6e2fDaa06F0cC9B400549394C8AA;
-    address public constant EXPECTED_MULTIPLE_OWNER_ECDSA_VALIDATOR = 0x0740Ed7c11b9da33d9C80Bd76b826e4E90CC1906;
+    address public constant EXPECTED_IMPLEMENTATION = 0x62Fdd1382b0182F2CC40bAdEa6E5DE0CCb2d6488;
+    address public constant EXPECTED_FACTORY = 0x38CC0EDdD3a944CA17981e0A19470d2298B8d43a;
+    address public constant EXPECTED_BOOTSTRAP = 0xCF2808eA7d131d96E5C73Eb0eCD8Dc84D33905C7;
+    address public constant EXPECTED_MULTIPLE_OWNER_ECDSA_VALIDATOR = 0x0eA25BF9F313344d422B513e1af679484338518E;
+    address public constant EXPECTED_HMP = 0xDcA918dd23456d321282DF9507F6C09A50522136;
     uint256 public constant FACTORY_STAKE = 1e16;
+    uint256 public constant ROOTSTOCK_FACTORY_STAKE = 15000000000000;
 
     function run() external {
         IEntryPoint entryPoint = IEntryPoint(ENTRY_POINT_07);
@@ -41,6 +44,7 @@ contract DeployAllAndSetupScript is Script {
         ModularEtherspotWalletFactory factory;
         Bootstrap bootstrap;
         MultipleOwnerECDSAValidator multipleOwnerECDSAValidator;
+        HookMultiPlexer hookMultiPlexer;
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
         console2.log("Starting deployment sequence...");
@@ -104,6 +108,21 @@ contract DeployAllAndSetupScript is Script {
             console2.log(
                 "MultipleOwnerECDSAValidator already deployed at address", EXPECTED_MULTIPLE_OWNER_ECDSA_VALIDATOR
             );
+        }
+
+        /*//////////////////////////////////////////////////////////////
+                             Deploy HookMultiPlexer
+        //////////////////////////////////////////////////////////////*/
+        console2.log("Deploying HookMultiPlexer implementation...");
+        if (EXPECTED_HMP.code.length == 0) {
+            hookMultiPlexer = new HookMultiPlexer{salt: SALT}();
+            if (address(hookMultiPlexer) != EXPECTED_HMP) {
+                revert("Unexpected HookMultiPlexer address!!!");
+            } else {
+                console2.log("HookMultiPlexer deployed at address", address(hookMultiPlexer));
+            }
+        } else {
+            console2.log("HookMultiPlexer already deployed at address", EXPECTED_HMP);
         }
 
         /*//////////////////////////////////////////////////////////////
