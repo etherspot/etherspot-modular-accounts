@@ -42,16 +42,16 @@ contract CredibleAccountModuleHarness is CredibleAccountModule {
     function exposed_digestSignature(bytes calldata _signatureWithProof)
         external
         pure
-        returns (bytes memory signature, bytes memory proof)
+        returns (bytes memory signature)
     {
         return _digestSignature(_signatureWithProof);
     }
 
-    function exposed_retrieveLockedBalance(address _wallet, address _token) external view returns (uint256) {
+    function exposed_retrieveLockedBalance(address _wallet, address _token) external returns (uint256) {
         return _retrieveLockedBalance(_wallet, _token);
     }
 
-    function exposed_cumulativeLockedForWallet(address _wallet) external view returns (TokenData[] memory) {
+    function exposed_cumulativeLockedForWallet(address _wallet) external returns (TokenData[] memory) {
         return _cumulativeLockedForWallet(_wallet);
     }
 }
