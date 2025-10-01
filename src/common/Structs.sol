@@ -53,8 +53,8 @@ struct ResourceLock {
     address sessionKey;
     uint48 validAfter;
     uint48 validUntil;
+    bytes32 bidHash;
     TokenData[] tokenData;
-    uint256 nonce;
 }
 
 // HookMultiplexer

@@ -3,9 +3,8 @@ pragma solidity 0.8.23;
 
 import "forge-std/Test.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
-import {IERC20} from "openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "ERC7579/interfaces/IERC7579Account.sol";
-import {MODULE_TYPE_VALIDATOR} from "ERC7579/interfaces/IERC7579Module.sol";
 import {CALLTYPE_SINGLE} from "ERC7579/libs/ModeLib.sol";
 import "ERC7579/test/dependencies/EntryPoint.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
@@ -17,8 +16,7 @@ import {TestUSDC} from "../../../../src/test/TestUSDC.sol";
 import "../../../TestAdvancedUtils.t.sol";
 import "../../../../src/utils/ERC4337Utils.sol";
 
-contract CredibleAccountModuleTestUtils is TestAdvancedUtils {
-    using ERC4337Utils for IEntryPoint;
+contract CredibleAccountModuleTestUtils is ModularTestBase {
     using ECDSA for bytes32;
 
     /*//////////////////////////////////////////////////////////////
@@ -26,31 +24,31 @@ contract CredibleAccountModuleTestUtils is TestAdvancedUtils {
     //////////////////////////////////////////////////////////////*/
 
     // Contract instances
-    ModularEtherspotWallet internal mew;
     CredibleAccountModuleHarness internal harness;
-    TestERC20 internal dai;
-    TestERC20 internal uni;
-    TestUSDC internal usdc;
-    TestERC20 internal aave;
 
     // Test addresses and keys
-    address internal alice;
-    uint256 internal aliceKey;
-    address internal sessionKey;
-    uint256 internal sessionKeyPrivateKey;
-    address internal invalidSessionKey;
-    address payable internal immutable beneficiary;
-    address payable internal immutable receiver;
-    address payable internal immutable dummySessionKey;
+    User solver;
+    User otherSessionKey;
 
     // Test variables
-    address internal immutable solver = address(0xdeadbeef);
-    uint48 internal validAfter;
-    uint48 internal validUntil;
-    address[3] internal tokens;
-    uint256 internal constant TOKENS_LENGTH = 3;
-    uint256[3] internal amounts;
-    uint256 internal constant AMOUNTS_LENGTH = 3;
+    bytes internal constant PROOF = hex"1234567890abcdef";
+    uint48 internal validAfter = uint48(block.timestamp);
+    uint48 internal validUntil = uint48(block.timestamp + 1 days);
+    address[3] internal tokens = [address(usdc), address(dai), address(usdt)];
+    uint256[3] internal amounts = [100e6, 200e18, 300e18];
+
+    /*//////////////////////////////////////////////////////////////
+                              MODIFIERS
+    //////////////////////////////////////////////////////////////*/
+
+    modifier withRequiredModules() {
+        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(moecdsav), hex"");
+        _installHookViaMultiplexer(scw, address(cam), HookType.GLOBAL);
+        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
+        _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(rlv), abi.encode(eoa.pub));
+        vm.startPrank(address(scw));
+        _;
+    }
 
     /*//////////////////////////////////////////////////////////////
                         TEST HELPER FUNCTIONS
@@ -79,9 +77,7 @@ contract CredibleAccountModuleTestUtils is TestAdvancedUtils {
         _installCredibleAccountModuleAsValidator();
         vm.startPrank(address(mew));
         // Set up test variables
-        validAfter = uint48(block.timestamp);
-        validUntil = uint48(block.timestamp + 1 days);
-        tokens = [address(usdc), address(dai), address(uni)];
+        tokens = [address(usdc), address(dai), address(usdt)];
         amounts = [100e6, 200e18, 300e18];
         // Mint and approve tokens
         usdc.mint(address(mew), amounts[0]);
@@ -135,15 +131,15 @@ contract CredibleAccountModuleTestUtils is TestAdvancedUtils {
             td[i] = TokenData(tokens[i], amounts[i]);
         }
         ResourceLock memory rl = ResourceLock({
-            chainId: 42161, // Arbitrum
-            smartWallet: _wallet,
-            sessionKey: sessionKey,
+            chainId: block.chainid,
+            smartWallet: _scw,
+            sessionKey: sessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
-            tokenData: td,
-            nonce: 1
+            bidHash: DUMMY_BID_HASH,
+            tokenData: td
         });
-        return abi.encode(rl);
+        return rl;
     }
 
     function _enableDefaultSessionKey(address _wallet) internal {

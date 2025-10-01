@@ -2,7 +2,7 @@
 pragma solidity 0.8.23;
 
 import {ECDSA} from "solady/src/utils/ECDSA.sol";
-import {IERC20} from "openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 import "ERC4337/core/Helpers.sol";
 import "ERC7579/interfaces/IERC7579Account.sol";

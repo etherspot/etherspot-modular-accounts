@@ -1,24 +1,42 @@
 [profile.default]
 src = "src"
 out = "out"
-libs = ["lib"]
+libs = ["dependencies"]
 bytecodeHash = "none"
 cbor_metadata = false
 solc_version = '0.8.23'
 evm_version = "london"
 optimizer = true
-runs = 1000
-gas_reports = [
-  "ModularEtherspotWallet",
-  "ModularEtherspotWalletFactory",
-  "MultipleOwnerECDSAValidator",
-  "ERC20SessionKeyValidator",
-  "ModuleIsolationHook",
-  "SessionKeyValidator",
+runs = 256
+gas_reports = ["*"]
+
+remappings = [
+  "@openzeppelin/contracts/=dependencies/@openzeppelin-contracts-5.2.0/",
+  "ERC4337/=dependencies/eth-infinitism-account-abstraction-0.7/contracts/",
+  "ERC7579/=src/ERC7579/",
+  "forge-std/=dependencies/forge-std-1.9.6/src/",
+  "solady/=dependencies/solady-0.1.8/",
+  "solarray/=dependencies/solarray-0.1/src/",
 ]
+auto_detect_remappings = false
 
 [fuzz]
 runs = 256
+
+[soldeer]
+remappings_generate = false
+remappings_regenerate = false
+remappings_version = false
+remappings_location = "txt"
+remappings_prefix = ""
+recursive_deps = true
+
+[dependencies]
+solady = "0.1.8"
+"@openzeppelin-contracts" = "5.2.0"
+eth-infinitism-account-abstraction = "0.7"
+forge-std = "1.9.6"
+solarray = { version = "0.1", git = "git@github.com:evmcheb/solarray.git", rev = "a547630f9bf7837af9e6919d217672afe7abf7f1" }
 
 [rpc_endpoints]
 # mainnets

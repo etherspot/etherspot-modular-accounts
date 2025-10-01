@@ -2,19 +2,20 @@
 pragma solidity 0.8.23;
 
 import "forge-std/Test.sol";
+import {ECDSA} from "solady/src/utils/ECDSA.sol";
 import {PackedUserOperation} from "ERC4337/interfaces/PackedUserOperation.sol";
 import "ERC7579/test/dependencies/EntryPoint.sol";
-import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
-import {SessionKeyValidator} from "../../../../src/modules/validators/SessionKeyValidator.sol";
+import "ERC7579/interfaces/IERC7579Account.sol";
+import "ERC7579/libs/ModeLib.sol";
 import {ExecutionValidation, ParamCondition, Permission, SessionData} from "../../../../src/common/Structs.sol";
 import {ComparisonRule} from "../../../../src/common/Enums.sol";
 import {SessionKeyValidatorHarness} from "../../../harnesses/SessionKeyValidatorHarness.sol";
 import {TestCounter} from "../../../../src/test/TestCounter.sol";
-import "../../../TestAdvancedUtils.t.sol";
-import "../../../../src/utils/ERC4337Utils.sol";
+import {TestERC721} from "../../../../src/test/TestERC721.sol";
+import {TestUniswapV3} from "../../../../src/test/TestUniswapV3.sol";
+import "../../../ModularTestBase.sol";
 
-contract SessionKeyTestUtils is TestAdvancedUtils {
-    using ERC4337Utils for IEntryPoint;
+contract SessionKeyTestUtils is ModularTestBase {
     using ECDSA for bytes32;
 
     /*//////////////////////////////////////////////////////////////
@@ -22,10 +23,11 @@ contract SessionKeyTestUtils is TestAdvancedUtils {
     //////////////////////////////////////////////////////////////*/
 
     // Contract instances
-    ModularEtherspotWallet internal mew;
     SessionKeyValidatorHarness internal harness;
     TestCounter internal counter1;
     TestCounter internal counter2;
+    TestERC721 internal cryptoPunk;
+    TestUniswapV3 internal uniswapV3;
 
     // Test variables
     uint48 internal immutable validAfter = uint48(block.timestamp);
@@ -33,31 +35,41 @@ contract SessionKeyTestUtils is TestAdvancedUtils {
     uint256 internal immutable numberPermissions = 4;
     uint256 internal immutable tenUses = 10;
 
-    // Test addresses and keys
-    address internal alice;
-    uint256 internal aliceKey;
-    address payable internal beneficiary;
+    /*//////////////////////////////////////////////////////////////
+                              MODIFIERS
+    //////////////////////////////////////////////////////////////*/
+
+    modifier validatorInstalled() {
+        _installModule(
+            eoa.pub,
+            scw,
+            MODULE_TYPE_VALIDATOR,
+            address(skv),
+            hex""
+        );
+        vm.startPrank(address(scw));
+        _;
+        vm.stopPrank();
+    }
 
     /*//////////////////////////////////////////////////////////////
                         TEST HELPER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     function _testSetup() internal {
+        _testInit();
         harness = new SessionKeyValidatorHarness();
         counter1 = new TestCounter();
         counter2 = new TestCounter();
-        (alice, aliceKey) = makeAddrAndKey("alice");
-        beneficiary = payable(address(makeAddr("beneficiary")));
-        vm.deal(beneficiary, 1 ether);
-        mew = setupMEWWithSessionKeys();
-        vm.startPrank(address(mew));
+        cryptoPunk = new TestERC721();
+        uniswapV3 = new TestUniswapV3(weth);
     }
 
-    function _getDefaultSessionKeyAndPermissions(
-        address _sessionKey
+    function _getSessionKeyAndPermissions(
+        User memory _sessionKey
     ) internal view returns (SessionData memory, Permission[] memory) {
         SessionData memory sd = SessionData({
-            sessionKey: _sessionKey,
+            sessionKey: _sessionKey.pub,
             validAfter: validAfter,
             validUntil: validUntil,
             live: false
@@ -66,7 +78,7 @@ contract SessionKeyTestUtils is TestAdvancedUtils {
         conditions[0] = ParamCondition({
             offset: 4,
             rule: ComparisonRule.EQUAL,
-            value: bytes32(uint256(uint160(alice)))
+            value: bytes32(uint256(uint160(address(alice.pub))))
         });
         conditions[1] = ParamCondition({
             offset: 36,
@@ -84,7 +96,7 @@ contract SessionKeyTestUtils is TestAdvancedUtils {
         return (sd, perms);
     }
 
-    function _setupExecutionValidation(
+    function _getExecutionValidation(
         uint48 _validAfter,
         uint48 _validUntil
     ) internal pure returns (ExecutionValidation memory) {
@@ -96,79 +108,47 @@ contract SessionKeyTestUtils is TestAdvancedUtils {
     }
 
     function _setupSingleUserOp(
-        address _sender,
+        address _validator,
         address _target,
+        uint256 _amount,
         bytes memory _callData,
         ExecutionValidation[] memory _execValidations,
-        uint256 _privateKey
+        User memory _user
     ) internal view returns (PackedUserOperation memory) {
-        bytes memory userOpCalldata = abi.encodeCall(
+        bytes memory opCalldata = abi.encodeCall(
             IERC7579Account.execute,
             (
                 ModeLib.encodeSimpleSingle(),
-                ExecutionLib.encodeSingle(_target, 0, _callData)
+                ExecutionLib.encodeSingle(_target, _amount, _callData)
             )
         );
-        PackedUserOperation memory userOp = entrypoint.fillUserOp(
-            _sender,
-            userOpCalldata
+        PackedUserOperation memory op = _createUserOp(address(scw), _validator);
+        op.callData = opCalldata;
+        bytes32 hash = entrypoint.getUserOpHash(op);
+        op.signature = bytes.concat(
+            _ethSign(hash, _user),
+            abi.encode(_execValidations)
         );
-        userOp.nonce = getNonce(_sender, address(sessionKeyValidator));
-        bytes32 hash = entrypoint.getUserOpHash(userOp);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(
-            _privateKey,
-            ECDSA.toEthSignedMessageHash(hash)
-        );
-        bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory encodedExecValidations = abi.encode(_execValidations);
-        userOp.signature = bytes.concat(signature, encodedExecValidations);
-        return userOp;
+        return op;
     }
 
     function _setupBatchUserOp(
-        address _sender,
-        Execution[] memory _executions,
+        address _validator,
+        Execution[] memory _execs,
         ExecutionValidation[] memory _execValidations,
-        uint256 _privateKey
+        User memory _user
     ) internal view returns (PackedUserOperation memory) {
-        bytes memory userOpCalldata = abi.encodeCall(
+        bytes memory opCalldata = abi.encodeCall(
             IERC7579Account.execute,
-            (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(_executions))
+            (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(_execs))
         );
-        PackedUserOperation memory userOp = entrypoint.fillUserOp(
-            _sender,
-            userOpCalldata
+        PackedUserOperation memory op = _createUserOp(address(scw), _validator);
+        op.callData = opCalldata;
+        bytes32 hash = entrypoint.getUserOpHash(op);
+        op.signature = bytes.concat(
+            _ethSign(hash, _user),
+            abi.encode(_execValidations)
         );
-        userOp.nonce = getNonce(_sender, address(sessionKeyValidator));
-        bytes32 hash = entrypoint.getUserOpHash(userOp);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(
-            _privateKey,
-            ECDSA.toEthSignedMessageHash(hash)
-        );
-        bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory encodedExecValidations = abi.encode(_execValidations);
-        userOp.signature = bytes.concat(signature, encodedExecValidations);
-        return userOp;
-    }
-
-    function _executeUserOp(PackedUserOperation memory _userOp) internal {
-        PackedUserOperation[] memory userOps = new PackedUserOperation[](1);
-        userOps[0] = _userOp;
-        entrypoint.handleOps(userOps, beneficiary);
-    }
-
-    function _getPrevValidator(
-        address _validator
-    ) internal view returns (address) {
-        for (uint256 i = 1; i < 20; ++i) {
-            (address[] memory validators, ) = mew.getValidatorPaginated(
-                address(0x1),
-                i
-            );
-            if (validators[validators.length - 1] == _validator) {
-                return validators[validators.length - 2];
-            }
-        }
-        return address(0);
+        return op;
     }
 }

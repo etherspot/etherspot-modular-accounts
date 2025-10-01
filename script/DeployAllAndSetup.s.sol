@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {IEntryPoint} from "ERC4337/interfaces/IEntryPoint.sol";
 import {IStakeManager} from "ERC4337/interfaces/IStakeManager.sol";
-import {Bootstrap} from "ERC7579/utils/Bootstrap.sol";
+import {Bootstrap} from "../src/utils/Bootstrap.sol";
 import {ModularEtherspotWallet} from "../src/wallet/ModularEtherspotWallet.sol";
 import {ModularEtherspotWalletFactory} from "../src/wallet/ModularEtherspotWalletFactory.sol";
 import {MultipleOwnerECDSAValidator} from "../src/modules/validators/MultipleOwnerECDSAValidator.sol";
