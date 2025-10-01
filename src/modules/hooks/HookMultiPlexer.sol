@@ -10,16 +10,11 @@ import {TrustedForwarder} from "../../utils/TrustedForwarder.sol";
 import "../../common/Enums.sol";
 import "../../common/Structs.sol";
 
-/// @title HookMultiPlexer (Modified Version)
-/// @dev A module that allows adding multiple hooks to a smart account.
-///      This contract is based on the original implementation by rhinestone.wtf,
-///      with modifications made by etherspot to extend its functionality.
-/// @author Original: rhinestone.wtf
-/// @author Modified by: etherspot
-/// @notice This contract is licensed under AGPL-3.0-only.
-///         Modifications have been made from the original version.
-///         See https://www.gnu.org/licenses/agpl-3.0.html for full license text.
-
+/**
+ * @title HookMultiPlexer
+ * @dev A module that allows to add multiple hooks to a smart account
+ * @author rhinestone.wtf
+ */
 contract HookMultiPlexer is IHook, IHookMultiPlexer, TrustedForwarder {
     using HookMultiPlexerLib for *;
     using LibSort for uint256[];
@@ -322,9 +317,10 @@ contract HookMultiPlexer is IHook, IHookMultiPlexer, TrustedForwarder {
         }
         // get the length of the hooks
         uint256 length = hooksAndContexts.length;
-
-        for (uint256 i = length; i > 0; --i) {
-            HookAndContext calldata hookAndContext = hooksAndContexts[i - 1];
+        for (uint256 i; i < length; i++) {
+            // cache the hook and context
+            HookAndContext calldata hookAndContext = hooksAndContexts[i];
+            // call postCheck on each hook
             hookAndContext.hook.postCheckSubHook({preCheckContext: hookAndContext.context});
         }
     }
