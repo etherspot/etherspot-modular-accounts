@@ -87,3 +87,21 @@ MIT
 | Bootstrap                                  | [0xCF2808eA7d131d96E5C73Eb0eCD8Dc84D33905C7](https://contractscan.xyz/contract/0xCF2808eA7d131d96E5C73Eb0eCD8Dc84D33905C7) |
 | MultipleOwnerECDSAValidator                | [0x0eA25BF9F313344d422B513e1af679484338518E](https://contractscan.xyz/contract/0x0eA25BF9F313344d422B513e1af679484338518E) |
 | HookMultiPlexer                            | [0xDcA918dd23456d321282DF9507F6C09A50522136](https://contractscan.xyz/contract/0xDcA918dd23456d321282DF9507F6C09A50522136) |
+
+</details>
+
+<details>
+<summary>v2.0.0</summary>
+
+| Name                                       | Address                                    |
+| ------------------------------------------ | ------------------------------------------ |
+| ModularEtherspotWallet                     | [0x62Fdd1382b0182F2CC40bAdEa6E5DE0CCb2d6488](https://contractscan.xyz/contract/0x62Fdd1382b0182F2CC40bAdEa6E5DE0CCb2d6488) |
+| ModularEtherspotWalletFactory              | [0x38CC0EDdD3a944CA17981e0A19470d2298B8d43a](https://contractscan.xyz/contract/0x38CC0EDdD3a944CA17981e0A19470d2298B8d43a) |
+| Bootstrap                                  | [0xCF2808eA7d131d96E5C73Eb0eCD8Dc84D33905C7](https://contractscan.xyz/contract/0xCF2808eA7d131d96E5C73Eb0eCD8Dc84D33905C7) |
+| MultipleOwnerECDSAValidator                | [0x0eA25BF9F313344d422B513e1af679484338518E](https://contractscan.xyz/contract/0x0eA25BF9F313344d422B513e1af679484338518E) |
+| HookMultiPlexer                            | [0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3](https://contractscan.xyz/contract/0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3) |
+| CredibleAccountModule                      | [0x566f9d697FF95D13643A35B3F11BB4812B2aaF15](https://contractscan.xyz/contract/0x566f9d697FF95D13643A35B3F11BB4812B2aaF15) |
+| ResourceLockValidator                      | [0xe8bC0032846DEFDA434B08514034CDccD8db5318](https://contractscan.xyz/contract/0xe8bC0032846DEFDA434B08514034CDccD8db5318) |
+| InvoiceManager                             | [0xaedcceEa8D68949739239d877bF2Efa478bc007a](https://contractscan.xyz/contract/0xaedcceEa8D68949739239d877bF2Efa478bc007a) |
+
+</details>

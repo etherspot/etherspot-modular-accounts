@@ -10,33 +10,12 @@ contract CredibleAccountModuleHarness is CredibleAccountModule {
         CredibleAccountModule(_proofVerifier, _hookMultiPlexer)
     {}
 
-    function exposed_validateSingleCall(bytes calldata _callData, address _sessionKey, address _userOpSender)
-        external
-        returns (bool)
-    {
-        return _validateSingleCall(_callData, _sessionKey, _userOpSender);
+    function exposed_validateSingleCall(address _sessionKey, bytes calldata _callData) external returns (bool) {
+        return _validateSingleCall(_sessionKey, _callData);
     }
 
-    function exposed_validateBatchCall(bytes calldata _callData, address _sessionKey, address _userOpSender)
-        external
-        returns (bool)
-    {
-        return _validateBatchCall(_callData, _sessionKey, _userOpSender);
-    }
-
-    function exposed_validateTokenData(address _sessionKey, address _userOpSender, uint256 _amount, address _token)
-        external
-        returns (bool)
-    {
-        return _validateTokenData(_sessionKey, _userOpSender, _amount, _token);
-    }
-
-    function exposed_digestClaimTx(bytes calldata _data)
-        external
-        pure
-        returns (bytes4 selector, address to, uint256 amount)
-    {
-        return _digestClaimTx(_data);
+    function exposed_validateBatchCall(address _sessionKey, bytes calldata _callData) external returns (bool) {
+        return _validateBatchCall(_sessionKey, _callData);
     }
 
     function exposed_digestSignature(bytes calldata _signatureWithProof)

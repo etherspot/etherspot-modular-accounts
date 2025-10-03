@@ -35,7 +35,8 @@ Token amounts locked when creating session keys, preventing double-spending and 
 
 ### Token Claims
 
-The process of using session keys to transfer locked tokens, with validation against the original resource lock parameters.
+ The process of using session keys to claim locked tokens through the dedicated `claim()` function, which transfers tokens to the InvoiceManager and credits them to
+  invoices.
 
 ## Contract Methods
 
@@ -90,6 +91,7 @@ struct ResourceLock {
     address sessionKey; // The address of the session key
     uint48 validAfter; // The timestamp after which the session key is valid
     uint48 validUntil; // The timestamp until which the session key is valid
+    address solver; // Solver address
     bytes32 bidHash; // The hash of the bid
     TokenData[] tokenData; // The locked token amounts
 }
@@ -167,10 +169,10 @@ Validates user operations signed by session keys.
 
 **Process:**
 
-1. Recovers signer from signature
-2. Validates session key parameters against operation
-3. Checks token amounts and targets
-4. Returns packed validation data with time constraints
+  1. Recovers signer from signature
+  2. Validates call structure (allows `claim()` and `approve()` functions)
+  3. Validates session key exists and is active
+  4. Returns packed validation data with time constraints
 
 **Returns:**
 
@@ -190,8 +192,9 @@ Validates that a user operation complies with session key restrictions.
 
 **Supported Operations:**
 
-- Single ERC20 transfers
-- Batch ERC20 transfers
+- `claim(address _sessionKey, address _token, uint256 _amount)` calls
+- `IERC20.approve(address spender, uint256 amount)` calls
+- Mixed batches of claim and approve operations
 
 ### Query Methods
 
@@ -289,6 +292,37 @@ Checks if an account has the SESSION_KEY_DISABLER role.
 
 Returns all accounts with SESSION_KEY_DISABLER role.
 
+### Claiming Functions
+
+#### `claim(address _sessionKey, address _token, uint256 _amount)`
+
+  Claims tokens for a specific session key and transfers them to the InvoiceManager.
+
+  **Parameters:**
+
+- `_sessionKey`: The session key to claim tokens for
+- `_token`: The token address to claim
+- `_amount`: The amount to claim (must match locked amount exactly)
+
+  **Process:**
+
+  1. Validates caller is the wallet associated with the session key
+  2. Checks session key is active and within validity period
+  3. Verifies token exists in session's locked tokens
+  4. Confirms token hasn't already been claimed
+  5. Validates amount matches locked amount exactly
+  6. Transfers tokens from wallet to InvoiceManager
+  7. Credits tokens to the corresponding invoice
+
+  **Requirements:**
+
+- Caller must be the wallet associated with the session key
+- Session key must be active and within validity period
+- Token must be part of the session's locked tokens
+- Token must not have been previously claimed
+- Amount must exactly match the locked amount
+- Wallet must have sufficient token balance
+
 ## Data Structures
 
 ### ResourceLock
@@ -341,6 +375,8 @@ struct LockedToken {
 - `CredibleAccountModule_ModuleUninstalled(address wallet)`
 - `CredibleAccountModule_SessionKeyEnabled(address sessionKey, address wallet)`
 - `CredibleAccountModule_SessionKeyDisabled(address sessionKey, address caller)`
+- `CredibleAccountModule_TokensClaimed(address sessionKey, address token, uint256 amount)`
+- `CredibleAccountModule_InvoiceManagerUpdated(address oldManager, address newManager)`
 - `SessionKeyDisablerRoleGranted(address account, address granter)`
 - `SessionKeyDisablerRoleRevoked(address account, address revoker)`
 
@@ -358,6 +394,11 @@ struct LockedToken {
 - `CredibleAccountModule_NotAddedToHookMultiplexer`: Module not registered with hook
 - `CredibleAccountModule_InsufficientUnlockedBalance`: Insufficient unlocked tokens
 - `CredibleAccountModule_UnauthorizedDisabler`: Unauthorized session key disabler
+- `CredibleAccountModule_InvalidWallet`: Caller is not the session's wallet
+- `CredibleAccountModule_InvalidAmount`: Invalid amount (zero or doesn't match locked)
+- `CredibleAccountModule_InvalidInvoiceManager`: InvoiceManager not configured
+- `CredibleAccountModule_TokenNotFoundForSession`: Token not in session's locked tokens
+- `CredibleAccountModule_TokenAlreadyClaimed`: Token already claimed for this session
 
 ## Security Considerations
 
@@ -445,14 +486,22 @@ struct LockedToken {
 
 - Confirm session key hasn't expired
 - Verify signature format and recovery
-- Check token amounts match locked amounts exactly
-- Ensure target token is in session's locked tokens
+- Check call structure uses allowed functions (`claim()` or `approve()`)
+- Ensure target contract is correct (CredibleAccountModule for claims, any for approve)
 
 **Disable Failures**
 
 - Check if tokens are fully claimed or session expired
 - Verify caller has appropriate permissions
 - For emergency disable, ensure DEFAULT_ADMIN_ROLE
+
+**Claiming Failures**
+
+- Verify token exists in session's locked tokens
+- Check token hasn't been previously claimed
+- Ensure claim amount exactly matches locked amount
+- Confirm sufficient wallet token balance
+- Validate InvoiceManager is configured
 
 ### Balance Issues
 
@@ -462,16 +511,11 @@ struct LockedToken {
 - Verify hook is properly installed and active
 - Monitor for concurrent session key usage
 
-**Token Transfer Failures**
+**Claiming Failures**
 
-- Ensure exact amount matching between lock and transfer
+- Ensure exact amount matching between locked and claimed amounts
+- Verify token exists in session's locked token list
+- Check token hasn't been previously claimed
+- Confirm sufficient wallet balance for transfer
+- Validate InvoiceManager configuration and token whitelisting
 - Verify token contract implements standard ERC20
-- Check for token-specific transfer restrictions
-
-### Known Limitations
-
-1. **Single Transfer Only**: Only supports `transfer()` function, not `transferFrom()`
-2. **Exact Amount Matching**: Transfer amounts must exactly match locked amounts
-3. **No Partial Claims**: Session keys must be fully utilized or expire
-4. **Hook Dependency**: Requires HookMultiPlexer for proper operation
-5. **Gas Costs**: Complex operations can be gas-intensive

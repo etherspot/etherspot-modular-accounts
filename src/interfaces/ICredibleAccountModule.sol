@@ -58,25 +58,54 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @param wallet The address of the wallet for which the session key is unpaused.
     event CredibleAccountModule_SessionKeyUnpaused(address sessionKey, address wallet);
 
-    /// @notice Emitted when aan address is granted role of SESSION_KEY_DISABLER.
+    /// @notice Emitted when an address is granted role of SESSION_KEY_DISABLER.
     /// @param account The address of the account granted the role.
     /// @param admin The address of the admin granting the role.
     event SessionKeyDisablerRoleGranted(address indexed account, address indexed admin);
 
-    /// @notice Emitted when aan address is revoked role of SESSION_KEY_DISABLER.
+    /// @notice Emitted when an address is revoked role of SESSION_KEY_DISABLER.
     /// @param account The address of the account revoked the role.
     /// @param admin The address of the admin revoking the role.
     event SessionKeyDisablerRoleRevoked(address indexed account, address indexed admin);
+
+    /// @notice Emitted when InvoiceManager is updated.
+    /// @param old The old InvoiceManager address.
+    /// @param updated The new InvoiceManager address.
+    event CredibleAccountModule_InvoiceManagerUpdated(address indexed old, address indexed updated);
+
+    /// @notice Emitted when tokens are successfully claimed from a session key
+    /// @dev This event is fired during the execution phase when claim() is called and
+    ///      tokens are transferred from the smart wallet to the InvoiceManager
+    /// @param sessionKey The session key from which tokens were claimed
+    /// @param token The address of the token that was claimed
+    /// @param amount The amount of tokens that were claimed and transferred
+    event CredibleAccountModule_TokensClaimed(address sessionKey, address token, uint256 amount);
+
+    /// @notice Emitted when ResourceLockValidator is updated.
+    /// @param old The old ResourceLockValidator address.
+    /// @param updated The new ResourceLockValidator address.
+    event CredibleAccountModule_ResourceLockValidatorUpdated(address indexed old, address indexed updated);
+
+    /// @notice Emitted when a Session's validUntil has been updated.
+    /// @param wallet The session key owner.
+    /// @param sessionKey The sessionKey that the validUntil is being updated for.
+    /// @param oldValidUntil The old validUntil.
+    /// @param newValidUntil The new validUntil.
+
+    event CredibleAccountModule_UpdatedSessionValidUntil(
+        address indexed wallet, address indexed sessionKey, uint48 oldValidUntil, uint48 newValidUntil
+    );
 
     /*//////////////////////////////////////////////////////////////
                                 FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Sets the ResourceLockValidator contract address
+    /// @notice Configures the ResourceLockValidator and InvoiceManager contract addresses
     /// @dev Only callable by accounts with DEFAULT_ADMIN_ROLE
-    /// @dev Required for establishing circular dependency between ResourceLockValidator and CredibleAccountModule
+    /// @dev Required for establishing circular dependency between ResourceLockValidator, CredibleAccountModule and InvoiceManager
     /// @param _resourceLockValidator The address of the ResourceLockValidator contract
-    function setResourceLockValidator(address _resourceLockValidator) external;
+    /// @param _invoiceManager The address of the InvoiceManager contract
+    function configure(address _resourceLockValidator, address _invoiceManager) external;
 
     /// @notice Grants the SESSION_KEY_DISABLER role to an account.
     /// @param account The address of the account to grant the role to.
@@ -220,4 +249,44 @@ interface ICredibleAccountModule is IValidator, IHook {
     /// @dev This function is called after the main execution
     /// @param hookData The data prepared by preCheck function
     function postCheck(bytes calldata hookData) external;
+
+    /// @notice Claims tokens from a session key and transfers them to the InvoiceManager
+    /// @dev This is the main execution function that performs the actual token transfer.
+    ///      It validates the session key exists, checks token availability, updates state,
+    ///      and transfers tokens to the InvoiceManager while crediting them to the invoice.
+    /// @param _sessionKey The session key from which to claim tokens
+    /// @param _token The address of the token to claim
+    /// @param _amount The amount of tokens to claim
+    /// @return bool True if the claim was successful, false otherwise
+    function claim(address _sessionKey, address _token, uint256 _amount) external returns (bool);
+
+    /// @notice Updates the InvoiceManager contract address
+    /// @dev Only callable by accounts with DEFAULT_ADMIN_ROLE
+    /// @dev Emits CredibleAccountModule_InvoiceManagerUpdated event
+    /// @param _invoiceManager The new address of the InvoiceManager contract
+    function setInvoiceManager(address _invoiceManager) external;
+
+    /// @notice Grants the ORCHESTRATOR role to an account
+    /// @dev Only callable by accounts with DEFAULT_ADMIN_ROLE
+    /// @param account The address of the account to grant the role to
+    function grantOrchestratorRole(address account) external;
+
+    /// @notice Revokes the ORCHESTRATOR role from an account
+    /// @dev Only callable by accounts with DEFAULT_ADMIN_ROLE
+    /// @param account The address of the account to revoke the role from
+    function revokeOrchestratorRole(address account) external;
+
+    /// @notice Checks if an account has the ORCHESTRATOR role
+    /// @param account The address of the account to check
+    /// @return True if the account has the ORCHESTRATOR role, false otherwise
+    function hasOrchestratorRole(address account) external view returns (bool);
+
+    /// @notice Updates the validUntil timestamp for a session key
+    /// @dev Only callable by accounts with ORCHESTRATOR role
+    /// @dev Cannot decrease validUntil or update already claimed sessions
+    /// @dev Emits CredibleAccountModule_UpdatedSessionValidUntil event
+    /// @param _wallet The address of the wallet that owns the session key
+    /// @param _sessionKey The address of the session key to update
+    /// @param _validUntil The new validUntil timestamp (must be greater than current)
+    function updateSessionValidUntil(address _wallet, address _sessionKey, uint48 _validUntil) external;
 }

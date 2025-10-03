@@ -22,6 +22,7 @@ import {
 } from "../../../../src/common/Constants.sol";
 import {HookType, ResourceLock, TokenData} from "../../../../src/common/Structs.sol";
 import {ResourceLockValidatorTestUtils as TestUtils} from "../utils/ResourceLockValidatorTestUtils.sol";
+import {TestERC20} from "../../../../src/test/TestERC20.sol";
 
 contract ResourceLockValidator_Concrete_Test is TestUtils {
     using ECDSA for bytes32;
@@ -382,7 +383,10 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         // Create TokenData array with 10 entries
         TokenData[] memory tokens = new TokenData[](5);
         for (uint256 i; i < 5; ++i) {
-            tokens[i] = TokenData({token: vm.randomAddress(), amount: vm.randomUint()});
+            address newToken = address(new TestERC20());
+            tokens[i] = TokenData({token: newToken, amount: vm.randomUint()});
+            // Add new token to whitelisted tokens in InvoiceManager
+            _addTokenToInvoiceManagerWhitelist(newToken);
         }
         // Create ResourceLock with large TokenData array
         ResourceLock memory rl = _generateResourceLock(address(scw), sessionKey.pub);
@@ -473,7 +477,9 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         // Create TokenData array with 10 entries
         TokenData[] memory tokens = new TokenData[](5);
         for (uint256 i; i < 5; ++i) {
-            tokens[i] = TokenData({token: vm.randomAddress(), amount: vm.randomUint()});
+            address newToken = address(new TestERC20());
+            tokens[i] = TokenData({token: newToken, amount: vm.randomUint()});
+            _addTokenToInvoiceManagerWhitelist(newToken);
         }
         // Create ResourceLock with large TokenData array
         ResourceLock memory rl = _generateResourceLock(address(scw), sessionKey.pub);
@@ -544,6 +550,98 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         op.signature =
             hex"137ad66810b0325f2820c1f9160c2076a1607e5fd7010c4b02368b3905bccef1222086c638e9d828464dcc6330517430cd93516969b23612e3e41199f65950621b4a2c9276c86b3c670b424ab981c89c53f858e870f31a2999cf52353837897362bc36789e7a1e281436464229828f817d6612f7b477d66591ff96a9e064bcc98a";
         _executeUserOp(op);
+    }
+
+    /// @notice Tests session key extraction consistency between single and batch calls
+    /// @dev Compares session key extraction from identical ResourceLock data in single vs batch execution
+    function test_sessionKey_extraction_singleVsBatch() public withRequiredModules {
+        // Create identical ResourceLock for both calls
+        ResourceLock memory rl = _generateResourceLock(address(scw), sessionKey.pub);
+
+        console2.log("Expected session key:", sessionKey.pub);
+        console2.log("ResourceLock session key:", rl.sessionKey);
+
+        // Generate proof and merkle root
+        (bytes32[] memory proof, bytes32 merkleRoot,) = getTestProof(_buildResourceLockHash(rl), true);
+
+        // Create SINGLE call UserOp
+        PackedUserOperation memory singleOp = _createUserOp(address(scw), address(rlv));
+        singleOp.callData = abi.encodeCall(
+            IERC7579Account.execute,
+            (
+                ModeLib.encodeSimpleSingle(),
+                ExecutionLib.encodeSingle(
+                    address(cam), 0, abi.encodeWithSelector(cam.enableSessionKey.selector, abi.encode(rl))
+                )
+            )
+        );
+
+        // Create BATCH call UserOp with identical ResourceLock
+        PackedUserOperation memory batchOp = _createUserOp(address(scw), address(rlv));
+        Execution[] memory executions = new Execution[](1);
+        executions[0] = Execution({
+            target: address(cam),
+            value: 0,
+            callData: abi.encodeWithSelector(cam.enableSessionKey.selector, abi.encode(rl))
+        });
+        batchOp.callData =
+            abi.encodeCall(IERC7579Account.execute, (ModeLib.encodeSimpleBatch(), ExecutionLib.encodeBatch(executions)));
+
+        // Sign both operations with same signature
+        bytes memory sig = _sign(merkleRoot, eoa);
+        bytes memory compositeSig = bytes.concat(sig, abi.encodePacked(merkleRoot), _packProofForSignature(proof));
+        singleOp.signature = compositeSig;
+        batchOp.signature = compositeSig;
+
+        console2.log("\n=== TESTING SINGLE CALL ===");
+        // Test single call - should extract session key correctly
+        try rlv.validateUserOp(singleOp, entrypoint.getUserOpHash(singleOp)) {
+            console2.log("Single call validation succeeded");
+        } catch Error(string memory reason) {
+            console2.log("Single call failed with:", reason);
+        } catch (bytes memory lowLevelData) {
+            console2.log("Single call failed with low-level error");
+        }
+
+        console2.log("\n=== TESTING BATCH CALL ===");
+        // Test batch call - should extract same session key
+        try rlv.validateUserOp(batchOp, entrypoint.getUserOpHash(batchOp)) {
+            console2.log("Batch call validation succeeded");
+        } catch Error(string memory reason) {
+            console2.log("Batch call failed with:", reason);
+        } catch (bytes memory lowLevelData) {
+            console2.log("Batch call failed with low-level error");
+        }
+
+        console2.log("\n=== CALLDATA COMPARISON ===");
+        console2.log("Single call data length:", singleOp.callData.length);
+        console2.log("Batch call data length:", batchOp.callData.length);
+
+        // Log the encoded ResourceLock data for inspection
+        bytes memory encodedRL = abi.encode(rl);
+        console2.log("Encoded ResourceLock length:", encodedRL.length);
+
+        // Log first 128 bytes of encoded ResourceLock in chunks
+        bytes32 chunk1;
+        bytes32 chunk2;
+        bytes32 chunk3;
+        bytes32 chunk4;
+
+        assembly {
+            chunk1 := mload(add(encodedRL, 32)) // bytes 0-31
+            chunk2 := mload(add(encodedRL, 64)) // bytes 32-63
+            chunk3 := mload(add(encodedRL, 96)) // bytes 64-95
+            chunk4 := mload(add(encodedRL, 128)) // bytes 96-127
+        }
+
+        console2.log("Encoded RL chunk 1 (0-31):");
+        console2.logBytes32(chunk1);
+        console2.log("Encoded RL chunk 2 (32-63):");
+        console2.logBytes32(chunk2);
+        console2.log("Encoded RL chunk 3 (64-95):");
+        console2.logBytes32(chunk3);
+        console2.log("Encoded RL chunk 4 (96-127):");
+        console2.logBytes32(chunk4);
     }
 
     /// @notice Tests UserOperation validation fails with invalid target address in single call

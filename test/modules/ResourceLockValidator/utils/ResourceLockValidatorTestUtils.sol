@@ -21,6 +21,9 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
         _installHookViaMultiplexer(scw, address(cam), HookType.GLOBAL);
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(rlv), abi.encode(eoa.pub));
+        // Onboard solver to InvoiceManager
+        vm.prank(deployer.pub);
+        im.onboardSolver(solver.pub, "solver1", 0);
         vm.startPrank(address(scw));
         _;
         vm.stopPrank();
@@ -76,6 +79,7 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
                 _lock.sessionKey,
                 _lock.validAfter,
                 _lock.validUntil,
+                _lock.solver,
                 _lock.bidHash,
                 abi.encode(_lock.tokenData)
             )
@@ -92,6 +96,7 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
             sessionKey: _sk,
             validAfter: 1732176210,
             validUntil: 1732435407,
+            solver: solver.pub,
             bidHash: DUMMY_BID_HASH,
             tokenData: td
         });
@@ -205,5 +210,12 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
         bytes memory execution = ExecutionLib.encodeSingle(address(cam), 0, execData);
         // Create full callData with execute selector and mode
         return abi.encodeWithSelector(IERC7579Account.execute.selector, ModeLib.encodeSimpleSingle(), execution);
+    }
+
+    function _addTokenToInvoiceManagerWhitelist(address _token) internal {
+        vm.stopPrank();
+        vm.prank(deployer.pub);
+        im.addTokenToWhitelist(_token);
+        vm.startPrank(address(scw));
     }
 }

@@ -2,6 +2,7 @@
 src = "src"
 out = "out"
 libs = ["dependencies"]
+test = "test"
 bytecodeHash = "none"
 cbor_metadata = false
 solc_version = '0.8.23'
@@ -17,6 +18,9 @@ remappings = [
   "forge-std/=dependencies/forge-std-1.9.6/src/",
   "solady/=dependencies/solady-0.1.8/",
   "solarray/=dependencies/solarray-0.1/src/",
+  "@uniswap/v3-core/=dependencies/@uniswap-v3-core-1.0.2-solc-0.8-simulate",
+  "@uniswap/v3-periphery/=dependencies/@uniswap-v3-periphery-1.4.4/",
+  "@chainlink/=dependencies/smartcontractkit-chainlink-evm-0.3.2-svr/",
 ]
 auto_detect_remappings = false
 
@@ -37,6 +41,9 @@ solady = "0.1.8"
 eth-infinitism-account-abstraction = "0.7"
 forge-std = "1.9.6"
 solarray = { version = "0.1", git = "git@github.com:evmcheb/solarray.git", rev = "a547630f9bf7837af9e6919d217672afe7abf7f1" }
+"@uniswap-v3-periphery" = "1.4.4"
+"@uniswap-v3-core" = "1.0.2-solc-0.8-simulate"
+smartcontractkit-chainlink-evm = "0.3.2-svr"
 
 [rpc_endpoints]
 # mainnets

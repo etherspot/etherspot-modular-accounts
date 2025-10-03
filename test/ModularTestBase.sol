@@ -30,6 +30,7 @@ import {ERC1155FallbackHandler} from "../src/modules/fallbacks/ERC1155FallbackHa
 import {CredibleAccountModule} from "../src/modules/validators/CredibleAccountModule.sol";
 import {HookMultiPlexer} from "../src/modules/hooks/HookMultiPlexer.sol";
 import {ResourceLockValidator} from "../src/modules/validators/ResourceLockValidator.sol";
+import {InvoiceManager} from "../src/invoice_manager/InvoiceManager.sol";
 import {MockValidator} from "ERC7579/test/mocks/MockValidator.sol";
 import {MockExecutor} from "ERC7579/test/mocks/MockExecutor.sol";
 import {MockFallback} from "ERC7579/test/mocks/MockFallbackHandler.sol";
@@ -71,6 +72,7 @@ contract ModularTestBase is BootstrapUtil, Test {
     ResourceLockValidator internal rlv;
     CredibleAccountModule internal cam;
     HookMultiPlexer internal hmp;
+    InvoiceManager internal im;
     ERC1155FallbackHandler internal erc1155fb;
     TestUSDC internal usdc;
     TestERC20 internal usdt;
@@ -102,6 +104,7 @@ contract ModularTestBase is BootstrapUtil, Test {
     User internal guardian4;
     User internal malicious;
     User internal sessionKey;
+    User internal solver;
     User internal zero;
 
     /*//////////////////////////////////////////////////////////////
@@ -138,28 +141,6 @@ contract ModularTestBase is BootstrapUtil, Test {
         vm.label({account: address(mockReg), newLabel: "MockRegistry"});
         vm.label({account: address(mockTar), newLabel: "MockTarget"});
         vm.label({account: address(mockDelTar), newLabel: "MockDelegateTarget"});
-        // Contracts
-        impl = new ModularEtherspotWallet();
-        factory = new ModularEtherspotWalletFactory(address(impl), eoa.pub);
-        moecdsav = new MultipleOwnerECDSAValidator();
-        erc20skv = new ERC20SessionKeyValidator();
-        skv = new SessionKeyValidator();
-        erc1155fb = new ERC1155FallbackHandler();
-        hmp = new HookMultiPlexer();
-        cam = new CredibleAccountModule(deployer.pub, address(hmp));
-        rlv = new ResourceLockValidator(deployer.pub);
-        vm.label({account: address(impl), newLabel: "ModularEtherspotWallet"});
-        vm.label({account: address(factory), newLabel: "ModularEtherspotWalletFactory"});
-        vm.label({account: address(moecdsav), newLabel: "MultipleOwnerECDSAValidator"});
-        vm.label({account: address(erc20skv), newLabel: "ERC20SessionKeyValidator"});
-        vm.label({account: address(skv), newLabel: "SessionKeyValidator"});
-        vm.label({account: address(erc1155fb), newLabel: "ERC1155FallbackHandler"});
-        vm.label({account: address(hmp), newLabel: "HookMultiPlexer"});
-        vm.label({account: address(cam), newLabel: "CredibleAccountModule"});
-        vm.label({account: address(rlv), newLabel: "ResourceLockValidator"});
-        // Setup CAM and RLV
-        cam.setResourceLockValidator(address(rlv));
-        rlv.setCredibleAccountModule(address(cam));
         // Tokens
         usdc = new TestUSDC();
         usdt = new TestERC20();
@@ -173,6 +154,36 @@ contract ModularTestBase is BootstrapUtil, Test {
         vm.label({account: address(link), newLabel: "LINK"});
         vm.label({account: address(weth), newLabel: "WETH"});
         vm.label({account: address(uniswapV2), newLabel: "UniswapV2"});
+
+        // Contracts
+        impl = new ModularEtherspotWallet();
+        factory = new ModularEtherspotWalletFactory(address(impl), eoa.pub);
+        moecdsav = new MultipleOwnerECDSAValidator();
+        erc20skv = new ERC20SessionKeyValidator();
+        skv = new SessionKeyValidator();
+        erc1155fb = new ERC1155FallbackHandler();
+        hmp = new HookMultiPlexer();
+        cam = new CredibleAccountModule(deployer.pub, address(hmp));
+        rlv = new ResourceLockValidator(deployer.pub);
+        address[] memory whitelistedTokens = new address[](3);
+        whitelistedTokens[0] = address(usdc);
+        whitelistedTokens[1] = address(usdt);
+        whitelistedTokens[2] = address(dai);
+        im = new InvoiceManager(deployer.pub, address(cam), deployer.pub, deployer.pub);
+        vm.label({account: address(impl), newLabel: "ModularEtherspotWallet"});
+        vm.label({account: address(factory), newLabel: "ModularEtherspotWalletFactory"});
+        vm.label({account: address(moecdsav), newLabel: "MultipleOwnerECDSAValidator"});
+        vm.label({account: address(erc20skv), newLabel: "ERC20SessionKeyValidator"});
+        vm.label({account: address(skv), newLabel: "SessionKeyValidator"});
+        vm.label({account: address(erc1155fb), newLabel: "ERC1155FallbackHandler"});
+        vm.label({account: address(hmp), newLabel: "HookMultiPlexer"});
+        vm.label({account: address(cam), newLabel: "CredibleAccountModule"});
+        vm.label({account: address(rlv), newLabel: "ResourceLockValidator"});
+        vm.label({account: address(im), newLabel: "InvoiceManager"});
+        // Setup CAM, RLV and IM
+        cam.configure(address(rlv), address(im));
+        rlv.setCredibleAccountModule(address(cam));
+        im.addTokensToWhitelist(whitelistedTokens);
         // Users
         alice = _createUser("Alice");
         bob = _createUser("Bob");
@@ -184,6 +195,7 @@ contract ModularTestBase is BootstrapUtil, Test {
         guardian4 = _createUser("Guardian 4");
         malicious = _createUser("Malicious EOA");
         sessionKey = _createUser("Session Key");
+        solver = _createUser("Solver");
         zero = User({pub: payable(address(0)), priv: 0});
         _fund(deployer, address(dai), 100e18);
         _fund(deployer, address(usdt), 100e18);
@@ -315,6 +327,7 @@ contract ModularTestBase is BootstrapUtil, Test {
             ModularEtherspotWallet(payable(factory.createAccount({salt: uniqueSalt, initCode: _initCode})));
         vm.deal(address(newWallet), 100 ether);
         vm.stopPrank();
+        console2.log("SCW address:", address(newWallet));
         return newWallet;
     }
 
