@@ -6,7 +6,9 @@ import {CredibleAccountModule} from "../../src/modules/validators/CredibleAccoun
 import "../../src/common/Structs.sol";
 
 contract CredibleAccountModuleHarness is CredibleAccountModule {
-    constructor(address _owner, address _hookMultiPlexer) CredibleAccountModule(_owner, _hookMultiPlexer) {}
+    constructor(address _proofVerifier, address _hookMultiPlexer)
+        CredibleAccountModule(_proofVerifier, _hookMultiPlexer)
+    {}
 
     function exposed_validateSingleCall(address _sessionKey, bytes calldata _callData) external returns (bool) {
         return _validateSingleCall(_sessionKey, _callData);

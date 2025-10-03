@@ -82,35 +82,11 @@ MIT
 
 | Name                                       | Address                                    |
 | ------------------------------------------ | ------------------------------------------ |
-| ModularEtherspotWallet                     | [0x339eAB59e54fE25125AceC3225254a0cBD305A7b](https://contractscan.xyz/contract/0x339eAB59e54fE25125AceC3225254a0cBD305A7b) |
-| ModularEtherspotWalletFactory              | [0x2A40091f044e48DEB5C0FCbc442E443F3341B451](https://contractscan.xyz/contract/0x2A40091f044e48DEB5C0FCbc442E443F3341B451) |
-| Bootstrap                                  | [0x0D5154d7751b6e2fDaa06F0cC9B400549394C8AA](https://contractscan.xyz/contract/0x0D5154d7751b6e2fDaa06F0cC9B400549394C8AA) |
-| MultipleOwnerECDSAValidator                | [0x0740Ed7c11b9da33d9C80Bd76b826e4E90CC1906](https://contractscan.xyz/contract/0x0740Ed7c11b9da33d9C80Bd76b826e4E90CC1906) |
-
-</details>
-
-## ResourceLock Claim Process
-
-1. ResourceLock made on the SmartWallet is uniquely identified by sessionKey
-2. ResourceLock claim is initiated by the WalletUser by making a UserOp with transactionObjects
-   - approve ERC20 token amount locked 
-   - call `generateClaim` function on `CredibleAccountModule` contract
-3. UserOp execution will complete these state changes on smart-contract:
-   - Updates the claimed amount for the specified token in the session
-   - Transfers the claimed amount from walletAddress to invoiceManager
-   - InvoiceManager to Credits tokens to a specific invoice, recording that tokens have been received
-     Only accounts with CREDIBLE_ACCOUNT_ROLE can credit tokens. This function is part
-     of the two-phase settlement process where tokens must be credited before settlement.
-
-## Settle Invoice Process
-
-1. Settles an invoice by transferring tokens to solver and fees to fee receiver
-2. Settle-Invoice is the last stage of the claim process
-3. Calculates fees based on snapshotted fee amount from invoice creation
-4. Deletes all invoice data after successful settlement
-
-Smart contract function: `settleInvoice`
-Caller: OrchestratorWallet with SETTLER_ROLE role or linkedWallet in invoiceData
-CallType: UserOperation with function call `settleInvoice`
-
-
+| ModularEtherspotWallet                     | [0x62Fdd1382b0182F2CC40bAdEa6E5DE0CCb2d6488](https://contractscan.xyz/contract/0x62Fdd1382b0182F2CC40bAdEa6E5DE0CCb2d6488) |
+| ModularEtherspotWalletFactory              | [0x38CC0EDdD3a944CA17981e0A19470d2298B8d43a](https://contractscan.xyz/contract/0x38CC0EDdD3a944CA17981e0A19470d2298B8d43a) |
+| Bootstrap                                  | [0xCF2808eA7d131d96E5C73Eb0eCD8Dc84D33905C7](https://contractscan.xyz/contract/0xCF2808eA7d131d96E5C73Eb0eCD8Dc84D33905C7) |
+| MultipleOwnerECDSAValidator                | [0x0eA25BF9F313344d422B513e1af679484338518E](https://contractscan.xyz/contract/0x0eA25BF9F313344d422B513e1af679484338518E) |
+| HookMultiPlexer                            | [0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3](https://contractscan.xyz/contract/0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3) |
+| CredibleAccountModule                      | [0x566f9d697FF95D13643A35B3F11BB4812B2aaF15](https://contractscan.xyz/contract/0x566f9d697FF95D13643A35B3F11BB4812B2aaF15) |
+| ResourceLockValidator                      | [0xe8bC0032846DEFDA434B08514034CDccD8db5318](https://contractscan.xyz/contract/0xe8bC0032846DEFDA434B08514034CDccD8db5318) |
+| ResourceLockValidator                      | [0xaedcceEa8D68949739239d877bF2Efa478bc007a](https://contractscan.xyz/contract/0xaedcceEa8D68949739239d877bF2Efa478bc007a) |
