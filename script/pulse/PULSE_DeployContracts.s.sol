@@ -15,11 +15,12 @@ import {
     EXPECTED_RESOURCE_LOCK_VALIDATOR_ADDRESS,
     ORCHESTRATOR_SCW,
     PULSE_SALT,
-    USDC_ETHEREUM
+    TEST_USDC_BASE_SEPOLIA,
+    TEST_USDT_BASE_SEPOLIA
 } from "./utils/PulseConstants.sol";
 
 contract PULSE_DeployContracts is Script {
-    address[] public INVOICE_MANAGER_WHITELISTED_TOKENS = [USDC_ETHEREUM];
+    address[] public INVOICE_MANAGER_WHITELISTED_TOKENS = [TEST_USDC_BASE_SEPOLIA, TEST_USDT_BASE_SEPOLIA];
     address[] public sessionKeyDisablers = [ORCHESTRATOR_SCW];
     address[] public settlerRole = [ORCHESTRATOR_SCW];
 

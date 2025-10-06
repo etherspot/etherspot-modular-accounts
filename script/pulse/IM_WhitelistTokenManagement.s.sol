@@ -4,18 +4,20 @@ pragma solidity ^0.8.23;
 import "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {InvoiceManager} from "../../src/invoice_manager/InvoiceManager.sol";
-import {EXPECTED_INVOICE_MANAGER_ADDRESS, USDC_GNOSIS, USDC_OPTIMISM} from "./utils/PulseConstants.sol";
+import {
+    EXPECTED_INVOICE_MANAGER_ADDRESS, USDC_GNOSIS, USDC_OPTIMISM, TEST_DAI_SEPOLIA
+} from "./utils/PulseConstants.sol";
 
 contract IM_WhitelistTokenManagement is Script {
     InvoiceManager public invoiceManager;
 
     // Tokens to add to whitelist
     // Leave empty to skip
-    address[] public tokensToAdd = [USDC_OPTIMISM];
+    address[] public tokensToAdd = [TEST_DAI_SEPOLIA];
 
     // Tokens to remove from whitelist
     // Leave empty to skip
-    address[] public tokensToRemove = [USDC_GNOSIS];
+    address[] public tokensToRemove;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");

@@ -21,7 +21,7 @@ contract HookMultiPlexerScript is Script {
                   Replace These Values With Your Own
     //////////////////////////////////////////////////////////////*/
     address public constant DEPLOYER = 0x09FD4F6088f2025427AB1e89257A44747081Ed59;
-    address public constant EXPECTED_HMP = 0xDcA918dd23456d321282DF9507F6C09A50522136;
+    address public constant EXPECTED_HMP = 0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3;
 
     function run() external {
         HookMultiPlexer hookMultiPlexer;
