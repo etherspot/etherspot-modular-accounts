@@ -152,14 +152,9 @@
 | `MultipleOwnerECDSAValidator` | `base_sepolia` | [0x0eA25BF9F313344d422B513e1af679484338518E](https://sepolia.basescan.org/address/0x0eA25BF9F313344d422B513e1af679484338518E) | [0xf021ad75ec5e0cba7854e117bdf39ec84429276de99021872dfa668e6f870f31](https://sepolia.basescan.org/tx/0xf021ad75ec5e0cba7854e117bdf39ec84429276de99021872dfa668e6f870f31) |
 | `ERC20SessionKeyValidator` | `base_sepolia` | [0x22A55192a663591586241D42E603221eac49ed09](https://sepolia.basescan.org/address/0x22A55192a663591586241D42E603221eac49ed09) | [0xbab3a771abb775f0b07646b2394880c72dfb91dfb5667681cda87a4aabf363d5](https://sepolia.basescan.org/tx/0xbab3a771abb775f0b07646b2394880c72dfb91dfb5667681cda87a4aabf363d5) |
 | `HookMultiPlexer` | `base_sepolia` | [0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3](https://sepolia.basescan.org/address/0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3) | [0xb2e4f3776e1a825fbb8e89baffc43956e4743eb13241f2180caa287292221bf5](https://sepolia.basescan.org/tx/0xb2e4f3776e1a825fbb8e89baffc43956e4743eb13241f2180caa287292221bf5) |
-
 | `CredibleAccountModule` | `base_sepolia` | [0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3](https://sepolia.basescan.org/address/0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3) | [0xb2e4f3776e1a825fbb8e89baffc43956e4743eb13241f2180caa287292221bf5](https://sepolia.basescan.org/tx/0xb2e4f3776e1a825fbb8e89baffc43956e4743eb13241f2180caa287292221bf5) |
 | `ResourceLockValidator` | `base_sepolia` | [0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3](https://sepolia.basescan.org/address/0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3) | [0xb2e4f3776e1a825fbb8e89baffc43956e4743eb13241f2180caa287292221bf5](https://sepolia.basescan.org/tx/0xb2e4f3776e1a825fbb8e89baffc43956e4743eb13241f2180caa287292221bf5) |
 | `InvoiceManager` | `base_sepolia` | [0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3](https://sepolia.basescan.org/address/0xe629A99Fe2fAD23B1dF6Aa680BA6995cfDA885a3) | [0xb2e4f3776e1a825fbb8e89baffc43956e4743eb13241f2180caa287292221bf5](https://sepolia.basescan.org/tx/0xb2e4f3776e1a825fbb8e89baffc43956e4743eb13241f2180caa287292221bf5) |
-
-
-
-
 | `ModularEtherspotWallet` | `binance_smart_chain_testnet` | [0x62Fdd1382b0182F2CC40bAdEa6E5DE0CCb2d6488](https://testnet.bscscan.com/address/0x62Fdd1382b0182F2CC40bAdEa6E5DE0CCb2d6488) | [0xcf62f68928f34894e51fc033e77872c5b0feb272a7f65dd3a7efdb2a2bddc162](https://testnet.bscscan.com/tx/0xcf62f68928f34894e51fc033e77872c5b0feb272a7f65dd3a7efdb2a2bddc162) |
 | `ModularEtherspotWalletFactory` | `binance_smart_chain_testnet` | [0x38CC0EDdD3a944CA17981e0A19470d2298B8d43a](https://testnet.bscscan.com/address/0x38CC0EDdD3a944CA17981e0A19470d2298B8d43a) | [0x73b8bd6959c683e2cf12604cd95d4376237781b76df862880483772bc3917e9d](https://testnet.bscscan.com/tx/0x73b8bd6959c683e2cf12604cd95d4376237781b76df862880483772bc3917e9d) |
 | `Bootstrap` | `binance_smart_chain_testnet` | [0xCF2808eA7d131d96E5C73Eb0eCD8Dc84D33905C7](https://testnet.bscscan.com/address/0xCF2808eA7d131d96E5C73Eb0eCD8Dc84D33905C7) | [0xd6c7f6be6edbcf03928466c06b760d55d5f8d8cc30fa89a9277e448c77034caf](https://testnet.bscscan.com/tx/0xd6c7f6be6edbcf03928466c06b760d55d5f8d8cc30fa89a9277e448c77034caf) |
@@ -261,3 +256,14 @@
 | `MultipleOwnerECDSAValidator` | `xdc_apothem` | [0x0eA25BF9F313344d422B513e1af679484338518E](https://apothem.blocksscan.io/address/0x0eA25BF9F313344d422B513e1af679484338518E) | [0x9c703aedb6dbbcce3886a32b7cf9aa0b97fabb4cf5df7ed885cbd313202a24ff](https://explorer.apothem.network/tx/0x9c703aedb6dbbcce3886a32b7cf9aa0b97fabb4cf5df7ed885cbd313202a24ff#overview) |
 | `ERC20SessionKeyValidator` | `xdc_apothem` | [0x22A55192a663591586241D42E603221eac49ed09](https://apothem.blocksscan.io/address/0x22A55192a663591586241D42E603221eac49ed09) | [0x650104f1d0252d7261f8cdc5b4292949235fed64b42fa5fe929100b5d16c5565](https://explorer.apothem.network/tx/0x650104f1d0252d7261f8cdc5b4292949235fed64b42fa5fe929100b5d16c5565#overview) |
 | `HookMultiPlexer` | `xdc_apothem` | [0xDcA918dd23456d321282DF9507F6C09A50522136](https://apothem.blocksscan.io/address/0xDcA918dd23456d321282DF9507F6C09A50522136) | [0x2b986c0c52c7239475f16ee25fe701bba1a6f4a4d9f3e65059571bb4984cad7c](https://explorer.apothem.network/tx/0x2b986c0c52c7239475f16ee25fe701bba1a6f4a4d9f3e65059571bb4984cad7c#overview) |
+
+## GasTankPaymasters
+
+| Network | Supported Token | Contract Address |
+| ------- | --------------- | ---------------- |
+| `arbitrum` | USDC | [0x5bb1125f293de98927aef30a6c8726b98c07cbdd](https://arbiscan.io/address/0x5bb1125f293de98927aef30a6c8726b98c07cbdd) |
+| `base` | USDC | [0x5bb1125f293de98927aef30a6c8726b98c07cbdd](https://basescan.org/address/0x5bb1125f293de98927aef30a6c8726b98c07cbdd) |
+| `binance_smart_chain` | USDC | [0x5bb1125f293de98927aef30a6c8726b98c07cbdd](https://bscscan.com/address/0x5bB1125f293DE98927Aef30a6C8726B98C07Cbdd) |
+| `ethereum` | USDC | [0x5bb1125f293de98927aef30a6c8726b98c07cbdd](https://etherscan.io/address/0x5bB1125f293DE98927Aef30a6C8726B98C07Cbdd) |
+| `optimism` | USDC | [0x5bb1125f293de98927aef30a6c8726b98c07cbdd](https://optimistic.etherscan.io/address/0x5bB1125f293DE98927Aef30a6C8726B98C07Cbdd) |
+| `polygon` | USDC | [0x5bb1125f293de98927aef30a6c8726b98c07cbdd](https://polygonscan.com/address/0x5bB1125f293DE98927Aef30a6C8726B98C07Cbdd) |
