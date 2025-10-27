@@ -24,10 +24,10 @@ contract PULSE_HealthCheck is Script {
     InvoiceManager public invoiceManager;
 
     // Test wallets to check
-    address[] public checkWallets = [0x19635C3D0e42b9c968966e9f17135ea1cfA151a7];
+    address[] public checkWallets = [0x17976220B35FAF49D94EA57C456A96FF60FF5889];
 
     // Test solvers to check
-    address[] public checkSolvers;
+    address[] public checkSolvers = [0x7C84F10502FcDea2E403b70feA96a4aE990a34DF];
 
     function run() external {
         hookMultiPlexer = HookMultiPlexer(EXPECTED_HOOK_MULTIPLEXER_ADDRESS);
