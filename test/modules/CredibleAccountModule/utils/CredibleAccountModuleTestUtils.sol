@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "ERC7579/interfaces/IERC7579Account.sol";
 import {CALLTYPE_SINGLE} from "ERC7579/libs/ModeLib.sol";
 import "ERC7579/test/dependencies/EntryPoint.sol";
+import {ISolverManager} from "../../../../src/interfaces/ISolverManager.sol";
 import {ModularEtherspotWallet} from "../../../../src/wallet/ModularEtherspotWallet.sol";
 import {CredibleAccountModuleHarness} from "../../../harnesses/CredibleAccountModuleHarness.sol";
 import {CredibleAccountModule} from "../../../../src/modules/validators/CredibleAccountModule.sol";
@@ -44,7 +45,16 @@ contract CredibleAccountModuleTestUtils is ModularTestBase {
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(cam), abi.encode(MODULE_TYPE_VALIDATOR));
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(rlv), abi.encode(eoa.pub));
         vm.prank(deployer.pub);
-        im.onboardSolver(solver.pub, "solver 1", 0);
+        im.onboardSolver(
+            solver.pub,
+            solver.pub,
+            address(this), // or appropriate orchestrator address
+            "solver 1",
+            ISolverManager.FeeType.PERCENTAGE,
+            50,
+            ISolverManager.FeeType.PERCENTAGE,
+            20
+        );
         vm.startPrank(address(scw));
         _;
     }

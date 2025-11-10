@@ -22,12 +22,6 @@ abstract contract TokenManager is ITokenManager, AccessControlEnumerable {
     EnumerableSet.AddressSet internal whitelistedTokens;
 
     /*//////////////////////////////////////////////////////////////
-                                EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    // Events are defined in IInvoiceManager interface
-
-    /*//////////////////////////////////////////////////////////////
                                 ERRORS
     //////////////////////////////////////////////////////////////*/
 
@@ -35,7 +29,6 @@ abstract contract TokenManager is ITokenManager, AccessControlEnumerable {
     error TM_TokenNotWhitelisted(address token);
     error TM_TokenAlreadyWhitelisted(address token);
     error TM_EmptyTokenData();
-
 
     /*//////////////////////////////////////////////////////////////
                                 MODIFIERS
@@ -55,11 +48,7 @@ abstract contract TokenManager is ITokenManager, AccessControlEnumerable {
                     TOKEN WHITELIST MANAGEMENT
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Add a token to the whitelist
-     * @param _token The token address to whitelist
-     * @dev Only callable by addresses with DEFAULT_ADMIN_ROLE
-     */
+    // @inheritdoc ITokenManager
     function addTokenToWhitelist(address _token) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (_token == address(0)) revert TM_InvalidAddress();
         if (whitelistedTokens.contains(_token)) revert TM_TokenAlreadyWhitelisted(_token);
@@ -68,15 +57,10 @@ abstract contract TokenManager is ITokenManager, AccessControlEnumerable {
         emit TokenWhitelisted(_token, msg.sender);
     }
 
-    /**
-     * @notice Add multiple tokens to the whitelist
-     * @param _tokens Array of token addresses to whitelist
-     * @dev Only callable by addresses with DEFAULT_ADMIN_ROLE
-     */
+    // @inheritdoc ITokenManager
     function addTokensToWhitelist(address[] calldata _tokens) external onlyRole(DEFAULT_ADMIN_ROLE) {
         uint256 tokensLength = _tokens.length;
         if (tokensLength == 0) revert TM_EmptyTokenData();
-        
         for (uint256 i; i < tokensLength; ++i) {
             address token = _tokens[i];
             if (token == address(0)) revert TM_InvalidAddress();
@@ -87,23 +71,14 @@ abstract contract TokenManager is ITokenManager, AccessControlEnumerable {
         }
     }
 
-    /**
-     * @notice Remove a token from the whitelist
-     * @param _token The token address to remove from whitelist
-     * @dev Only callable by addresses with DEFAULT_ADMIN_ROLE
-     */
+    // @inheritdoc ITokenManager
     function removeTokenFromWhitelist(address _token) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (!whitelistedTokens.contains(_token)) revert TM_TokenNotWhitelisted(_token);
-        
         whitelistedTokens.remove(_token);
         emit TokenRemovedFromWhitelist(_token, msg.sender);
     }
 
-    /**
-     * @notice Remove multiple tokens from the whitelist
-     * @param _tokens Array of token addresses to remove from whitelist
-     * @dev Only callable by addresses with DEFAULT_ADMIN_ROLE
-     */
+    // @inheritdoc ITokenManager
     function removeTokensFromWhitelist(address[] calldata _tokens) external onlyRole(DEFAULT_ADMIN_ROLE) {
         uint256 tokensLength = _tokens.length;
         for (uint256 i; i < tokensLength; ++i) {
@@ -119,27 +94,17 @@ abstract contract TokenManager is ITokenManager, AccessControlEnumerable {
                         TOKEN VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Check if a token is whitelisted
-     * @param _token The token address to check
-     * @return bool True if token is whitelisted
-     */
+    // @inheritdoc ITokenManager
     function isTokenWhitelisted(address _token) external view returns (bool) {
         return whitelistedTokens.contains(_token);
     }
 
-    /**
-     * @notice Get all whitelisted tokens
-     * @return address[] Array of whitelisted token addresses
-     */
+    // @inheritdoc ITokenManager
     function getWhitelistedTokens() external view returns (address[] memory) {
         return whitelistedTokens.values();
     }
 
-    /**
-     * @notice Get the number of whitelisted tokens
-     * @return uint256 Number of whitelisted tokens
-     */
+    // @inheritdoc ITokenManager
     function getWhitelistedTokensCount() external view returns (uint256) {
         return whitelistedTokens.length();
     }

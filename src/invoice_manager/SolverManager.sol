@@ -20,7 +20,8 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
 
     bytes32 public constant SOLVER_MANAGER_ROLE = keccak256("SOLVER_MANAGER_ROLE");
     bytes32 public constant FEE_MANAGER_ROLE = keccak256("FEE_MANAGER_ROLE");
-    uint256 public constant PULSE_BASE_FEE = 5;
+    uint256 public constant MAX_FEE_PERCENTAGE = 10000; // 100% in basis points
+    uint256 public constant MAX_FEE_FIXED = 10000; // $100 in cents (100.00)
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
@@ -28,12 +29,6 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
 
     mapping(address => Solver) public solvers;
     mapping(address => EnumerableSet.AddressSet) internal solverInvoices;
-
-    /*//////////////////////////////////////////////////////////////
-                                EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    // Events are defined in ISolverManager interface
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -45,74 +40,133 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
     error SM_SolverInactive();
     error SM_SolverCannotSettle();
     error SM_SolverHasPendingInvoices();
+    error SM_FeeValueTooHigh();
+    error SM_SolverPendingOffboard();
 
     /*//////////////////////////////////////////////////////////////
                         SOLVER MANAGEMENT FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Registers a new solver with specified name and fee structure
-     * @param _solver Address of the solver to onboard
-     * @param _name Human-readable name for the solver
-     * @param _pulseFee Fee in cents (0 = use default 5 cents, >0 = custom fee amount)
-     * @dev Only callable by addresses with SOLVER_MANAGER_ROLE
-     * @dev Solver address cannot be zero and must not already exist
-     */
-    function onboardSolver(address _solver, string calldata _name, uint256 _pulseFee)
-        external
-        onlyRole(SOLVER_MANAGER_ROLE)
-    {
-        if (_solver == address(0)) revert SM_InvalidAddress();
-        Solver storage solver = solvers[_solver];
-        if (solver.solverAddress != address(0)) revert SM_SolverAlreadyExists();
-
-        solver.solverAddress = _solver;
+    // @inheritdoc ISolverManager
+    function onboardSolver(
+        address _executionAddress,
+        address _feeAddress,
+        address _orchestratorReceiver,
+        string calldata _name,
+        FeeType _orchestratorFeeType,
+        uint256 _orchestratorFeeValue,
+        FeeType _solverFeeType,
+        uint256 _solverFeeValue
+    ) external onlyRole(SOLVER_MANAGER_ROLE) {
+        if (_executionAddress == address(0) || _feeAddress == address(0) || _orchestratorReceiver == address(0)) {
+            revert SM_InvalidAddress();
+        }
+        // Validate orchestrator fee
+        if (_orchestratorFeeType == FeeType.PERCENTAGE) {
+            if (_orchestratorFeeValue > MAX_FEE_PERCENTAGE) revert SM_FeeValueTooHigh();
+        } else {
+            if (_orchestratorFeeValue > MAX_FEE_FIXED) revert SM_FeeValueTooHigh();
+        }
+        // Validate solver fee
+        if (_solverFeeType == FeeType.PERCENTAGE) {
+            if (_solverFeeValue > MAX_FEE_PERCENTAGE) revert SM_FeeValueTooHigh();
+        } else {
+            if (_solverFeeValue > MAX_FEE_FIXED) revert SM_FeeValueTooHigh();
+        }
+        Solver storage solver = solvers[_executionAddress];
+        if (solver.executionAddress != address(0)) revert SM_SolverAlreadyExists();
+        solver.executionAddress = _executionAddress;
+        solver.feeAddress = _feeAddress;
+        solver.orchestratorReceiver = _orchestratorReceiver;
+        solver.name = _name;
         solver.isActive = true;
         solver.pendingOffboard = false;
         solver.successfulSettlements = 0;
-        solver.pulseFee = _pulseFee; // 0 = use default calculated fee, >0 = use custom fee
-        solver.name = _name;
-
-        emit SolverOnboarded(_solver, _name, _pulseFee);
+        solver.orchestratorFeeType = _orchestratorFeeType;
+        solver.orchestratorFeeValue = _orchestratorFeeValue;
+        solver.solverFeeType = _solverFeeType;
+        solver.solverFeeValue = _solverFeeValue;
+        emit SolverOnboarded(
+            _executionAddress, _name, _orchestratorFeeType, _orchestratorFeeValue, _solverFeeType, _solverFeeValue
+        );
     }
 
-    /**
-     * @notice Updates the fee structure for an existing solver
-     * @param _solver Address of the solver to update
-     * @param _newFee New fee amount in cents (0 = use default, >0 = custom)
-     * @dev Only callable by addresses with FEE_MANAGER_ROLE
-     * @dev Only affects future invoices, existing invoices retain their snapshotted fees
-     */
-    function updateSolverFee(address _solver, uint256 _newFee) external onlyRole(FEE_MANAGER_ROLE) {
+    // @inheritdoc ISolverManager
+    function updateSolverFeeAddress(address _solver, address _feeAddress) external onlyRole(SOLVER_MANAGER_ROLE) {
+        if (_feeAddress == address(0)) revert SM_InvalidAddress();
         Solver storage solver = solvers[_solver];
-        if (solver.solverAddress == address(0)) revert SM_InvalidSolver();
-
-        uint256 oldFee = solver.pulseFee;
-        solver.pulseFee = _newFee;
-
-        emit SolverFeeUpdated(_solver, oldFee, _newFee);
+        if (solver.executionAddress == address(0)) revert SM_InvalidSolver();
+        if (solver.pendingOffboard) revert SM_SolverPendingOffboard();
+        if (!solver.isActive) revert SM_SolverInactive();
+        address oldFeeAddress = solver.feeAddress;
+        solver.feeAddress = _feeAddress;
+        emit SolverFeeAddressUpdated(_solver, oldFeeAddress, _feeAddress);
     }
 
-    /**
-     * @notice Removes a solver from the system and cleans up associated data
-     * @param _solver Address of the solver to remove
-     * @dev Only callable by addresses with SOLVER_MANAGER_ROLE
-     * @dev Will mark as pendingOffboard if solver has outstanding invoices
-     * @dev If solver has no outstanding invoices, deletes solver data and associated invoice mappings
-     */
+    // @inheritdoc ISolverManager
+    function updateOrchestratorReceiver(address _solver, address _orchestratorReceiver)
+        external
+        onlyRole(SOLVER_MANAGER_ROLE)
+    {
+        if (_orchestratorReceiver == address(0)) revert SM_InvalidAddress();
+        Solver storage solver = solvers[_solver];
+        if (solver.executionAddress == address(0)) revert SM_InvalidSolver();
+        if (solver.pendingOffboard) revert SM_SolverPendingOffboard();
+        address oldOrchestratorReceiver = solver.orchestratorReceiver;
+        solver.orchestratorReceiver = _orchestratorReceiver;
+        emit OrchestratorReceiverUpdated(_solver, oldOrchestratorReceiver, _orchestratorReceiver);
+    }
+
+    // @inheritdoc ISolverManager
+    function updateSolverFee(address _solver, FeeType _feeType, uint256 _feeValue)
+        external
+        onlyRole(FEE_MANAGER_ROLE)
+    {
+        Solver storage solver = solvers[_solver];
+        if (solver.executionAddress == address(0)) revert SM_InvalidSolver();
+        if (solver.pendingOffboard) revert SM_SolverPendingOffboard();
+        // Validate fee amount
+        if (_feeType == FeeType.PERCENTAGE) {
+            if (_feeValue > MAX_FEE_PERCENTAGE) revert SM_FeeValueTooHigh();
+        } else {
+            if (_feeValue > MAX_FEE_FIXED) revert SM_FeeValueTooHigh();
+        }
+        uint256 oldFee = solver.solverFeeValue;
+        solver.solverFeeType = _feeType;
+        solver.solverFeeValue = _feeValue;
+        emit SolverFeeUpdated(_solver, _feeType, oldFee, _feeValue);
+    }
+
+    // @inheritdoc ISolverManager
+    function updateOrchestratorFee(address _solver, FeeType _feeType, uint256 _feeValue)
+        external
+        onlyRole(FEE_MANAGER_ROLE)
+    {
+        Solver storage solver = solvers[_solver];
+        if (solver.executionAddress == address(0)) revert SM_InvalidSolver();
+        if (solver.pendingOffboard) revert SM_SolverPendingOffboard();
+        // Validate fee amount
+        if (_feeType == FeeType.PERCENTAGE) {
+            if (_feeValue > MAX_FEE_PERCENTAGE) revert SM_FeeValueTooHigh();
+        } else {
+            if (_feeValue > MAX_FEE_FIXED) revert SM_FeeValueTooHigh();
+        }
+        uint256 oldFee = solver.orchestratorFeeValue;
+        solver.orchestratorFeeType = _feeType;
+        solver.orchestratorFeeValue = _feeValue;
+        emit OrchestratorFeeUpdated(_solver, solver.orchestratorReceiver, _feeType, oldFee, _feeValue);
+    }
+
+    // @inheritdoc ISolverManager
     function offboardSolver(address _solver) external onlyRole(SOLVER_MANAGER_ROLE) {
-        if (solvers[_solver].solverAddress == address(0)) revert SM_InvalidSolver();
-
+        if (solvers[_solver].executionAddress == address(0)) revert SM_InvalidSolver();
         uint256 pendingInvoices = solverInvoices[_solver].length();
-
         if (pendingInvoices > 0) {
             // Marked as pending offboard (can't accept new invoices)
             solvers[_solver].isActive = false;
             solvers[_solver].pendingOffboard = true;
             emit SolverMarkedForOffboarding(_solver, pendingInvoices);
         } else {
-            // Complete removal (no pending invoices)
-            delete solverInvoices[_solver];
             delete solvers[_solver];
             emit SolverOffboarded(_solver);
         }
@@ -122,54 +176,17 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
                             SOLVER VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Retrieves data for a solver
-     * @param _solver Address of the solver to query
-     * @return name Human-readable name of the solver
-     * @return isActive Whether the solver is currently active
-     * @return pendingOffboard Where the solver is being offboarded but has active invoices
-     * @return successfulSettlements Number of invoices successfully settled
-     * @return activeInvoices Number of currently active invoices
-     * @return pulseFee Current fee setting in cents
-     */
-    function getSolverData(address _solver)
-        external
-        view
-        returns (
-            string memory name,
-            bool isActive,
-            bool pendingOffboard,
-            uint256 successfulSettlements,
-            uint256 activeInvoices,
-            uint256 pulseFee
-        )
-    {
-        Solver storage solver = solvers[_solver];
-        return (
-            solver.name,
-            solver.isActive,
-            solver.pendingOffboard,
-            solver.successfulSettlements,
-            solverInvoices[_solver].length(),
-            solver.pulseFee
-        );
+    // @inheritdoc ISolverManager
+    function getSolverData(address _solver) external view returns (Solver memory) {
+        return solvers[_solver];
     }
 
-    /**
-     * @notice Gets all active invoice session keys for a specific solver
-     * @param _solver Address of the solver to query
-     * @return Array of session key addresses for active invoices
-     */
+    // @inheritdoc ISolverManager
     function getSolverInvoices(address _solver) external view returns (address[] memory) {
         return solverInvoices[_solver].values();
     }
 
-    /**
-     * @notice Batch retrieval of multiple solver information
-     * @param _solvers Array of solver addresses to retrieve
-     * @return solvers_ Array of Solver structs
-     * @dev Returns empty struct for non-existent solvers
-     */
+    // @inheritdoc ISolverManager
     function getMultipleSolvers(address[] calldata _solvers) external view returns (Solver[] memory solvers_) {
         uint256 solversLength = _solvers.length;
         solvers_ = new Solver[](solversLength);
@@ -181,15 +198,6 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
     /*//////////////////////////////////////////////////////////////
                         INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Get the effective fee amount for a solver (custom or default)
-     * @param _solver Solver address
-     * @return feeAmount The fee amount to use (0 means use calculated default)
-     */
-    function _getSolverFeeAmount(address _solver) internal view returns (uint256 feeAmount) {
-        return solvers[_solver].pulseFee; // 0 means use default, non-zero means custom
-    }
 
     /**
      * @notice Internal function to add an invoice to solver's active invoices
@@ -242,38 +250,22 @@ abstract contract SolverManager is ISolverManager, AccessControlEnumerable {
                             ROLE MANAGEMENT
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Grants SOLVER_MANAGER_ROLE to an address
-     * @param _account Address to grant the role to
-     * @dev Only callable by DEFAULT_ADMIN_ROLE
-     */
+    // @inheritdoc ISolverManager
     function grantSolverManagerRole(address _account) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _grantRole(SOLVER_MANAGER_ROLE, _account);
     }
 
-    /**
-     * @notice Revokes SOLVER_MANAGER_ROLE from an address
-     * @param _account Address to revoke the role from
-     * @dev Only callable by DEFAULT_ADMIN_ROLE
-     */
+    // @inheritdoc ISolverManager
     function revokeSolverManagerRole(address _account) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _revokeRole(SOLVER_MANAGER_ROLE, _account);
     }
 
-    /**
-     * @notice Grants FEE_MANAGER_ROLE to an address
-     * @param _account Address to grant the role to
-     * @dev Only callable by DEFAULT_ADMIN_ROLE
-     */
+    // @inheritdoc ISolverManager
     function grantFeeManagerRole(address _account) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _grantRole(FEE_MANAGER_ROLE, _account);
     }
 
-    /**
-     * @notice Revokes FEE_MANAGER_ROLE from an address
-     * @param _account Address to revoke the role from
-     * @dev Only callable by DEFAULT_ADMIN_ROLE
-     */
+    // @inheritdoc ISolverManager
     function revokeFeeManagerRole(address _account) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _revokeRole(FEE_MANAGER_ROLE, _account);
     }

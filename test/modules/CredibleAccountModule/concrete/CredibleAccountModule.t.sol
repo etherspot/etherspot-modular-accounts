@@ -12,6 +12,7 @@ import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
 import "ERC7579/libs/ModeLib.sol";
 import {CredibleAccountModule as CAM} from "../../../../src/modules/validators/CredibleAccountModule.sol";
 import {ICredibleAccountModule} from "../../../../src/interfaces/ICredibleAccountModule.sol";
+import {InvoiceManager} from "../../../../src/invoice_manager/InvoiceManager.sol";
 import {HookMultiPlexer as HMP} from "../../../../src/modules/hooks/HookMultiPlexer.sol";
 import {HookMultiPlexerLib as HMPL} from "../../../../src/libraries/HookMultiPlexerLib.sol";
 import {ResourceLockValidator} from "../../../../src/modules/validators/ResourceLockValidator.sol";
@@ -2277,26 +2278,71 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
     function _settleInvoicePhase() internal {
         console2.log("\n=== PHASE 3: SETTLE INVOICE ===");
 
-        uint256 solverUsdcBefore = usdc.balanceOf(solver.pub);
-        uint256 solverUsdtBefore = usdt.balanceOf(solver.pub);
-        uint256 solverDaiBefore = dai.balanceOf(solver.pub);
+        // Extract fees
+        (uint256 protocolFee, uint256 orchestratorFee, uint256 solverFee) = _getInvoiceFees();
 
+        // Capture addresses
+        address protocolReceiver = im.protocolFeeReceiver();
+        address orchestratorReceiver = address(this);
+        address solverAddr = solver.pub;
+
+        // Capture balances before settlement
+        uint256 protocolUsdcBefore = usdc.balanceOf(protocolReceiver);
+        uint256 orchestratorUsdcBefore = usdc.balanceOf(orchestratorReceiver);
+        uint256 solverUsdcBefore = usdc.balanceOf(solverAddr);
+        uint256 solverUsdtBefore = usdt.balanceOf(solverAddr);
+        uint256 solverDaiBefore = dai.balanceOf(solverAddr);
+
+        // Execute settlement
         vm.stopPrank();
         vm.prank(deployer.pub);
         console2.log("Settling invoice for session key...");
         im.settleInvoice(sessionKey.pub);
 
-        uint256 solverUsdcAfter = usdc.balanceOf(solver.pub);
-        uint256 solverUsdtAfter = usdt.balanceOf(solver.pub);
-        uint256 solverDaiAfter = dai.balanceOf(solver.pub);
+        // Validate protocol fee (inline to reduce stack)
+        assertEq(usdc.balanceOf(protocolReceiver) - protocolUsdcBefore, protocolFee, "Protocol fee incorrect");
 
-        console2.log("Solver balances after:", solverUsdcAfter, solverUsdtAfter, solverDaiAfter);
+        // Validate orchestrator fee
+        assertEq(usdc.balanceOf(orchestratorReceiver) - orchestratorUsdcBefore, orchestratorFee, "Orchestrator fee incorrect");
 
-        assertGt(solverUsdcAfter, solverUsdcBefore, "Solver should receive USDC");
-        assertGt(solverUsdtAfter, solverUsdtBefore, "Solver should receive USDT");
-        assertGt(solverDaiAfter, solverDaiBefore, "Solver should receive DAI");
+        // Validate solver fees and repayment
+        _validateSolverDistribution(solverAddr, solverUsdcBefore, solverUsdtBefore, solverDaiBefore, protocolFee, orchestratorFee, solverFee);
 
-        console2.log("Solver paid successfully");
+        console2.log("All fees distributed correctly");
+    }
+
+    function _validateSolverDistribution(
+        address solverAddr,
+        uint256 usdcBefore,
+        uint256 usdtBefore,
+        uint256 daiBefore,
+        uint256 protocolFee,
+        uint256 orchestratorFee,
+        uint256 solverFee
+    ) internal {
+        // Calculate expected solver USDC (repayment + fee)
+        uint256 totalAmount = 100e6;
+        uint256 totalFees = protocolFee + orchestratorFee + solverFee;
+        uint256 expectedRepayment = totalAmount - totalFees;
+        uint256 expectedTotal = expectedRepayment + solverFee;
+
+        // Validate solver USDC
+        assertEq(usdc.balanceOf(solverAddr) - usdcBefore, expectedTotal, "Solver USDC incorrect");
+
+        // Validate solver USDT and DAI (exact amounts)
+        assertEq(usdt.balanceOf(solverAddr) - usdtBefore, 50e18, "Solver USDT incorrect");
+        assertEq(dai.balanceOf(solverAddr) - daiBefore, 200e18, "Solver DAI incorrect");
+    }
+
+    function _getInvoiceFees()
+        internal
+        view
+        returns (uint256 protocolFee, uint256 orchestratorFee, uint256 solverFee)
+    {
+        (InvoiceManager.Invoice memory invoice,) = im.getInvoice(sessionKey.pub);
+        protocolFee = invoice.fees.protocolFee;
+        orchestratorFee = invoice.fees.orchestratorFee;
+        solverFee = invoice.fees.solverFee;
     }
 
     function _verifyCleanupPhase(bytes32 bidHash) internal {
@@ -2483,7 +2529,6 @@ contract CredibleAccountModule_Concrete_Test is TestUtils {
         _executeUserOp(claimOp);
     }
 
-    // TODO: check this for approvals
     function test_fullE2E_inactiveSolverSettlement() public withRequiredModules {
         deal(address(usdc), address(scw), 1000e6);
 

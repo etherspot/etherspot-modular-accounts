@@ -21,3 +21,6 @@ coverage/
 
 # Soldeer
 /dependencies
+
+# Testing
+.certora_internal/*

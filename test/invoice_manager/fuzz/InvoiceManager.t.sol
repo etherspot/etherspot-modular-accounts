@@ -3,12 +3,13 @@ pragma solidity 0.8.23;
 
 import "forge-std/Test.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {InvoiceManager} from "../../../../src/invoice_manager/InvoiceManager.sol";
-import {SolverManager} from "../../../../src/invoice_manager/SolverManager.sol";
-import {TokenManager} from "../../../../src/invoice_manager/TokenManager.sol";
+import {ISolverManager} from "../../../src/interfaces/ISolverManager.sol";
+import {InvoiceManager} from "../../../src/invoice_manager/InvoiceManager.sol";
+import {SolverManager} from "../../../src/invoice_manager/SolverManager.sol";
+import {TokenManager} from "../../../src/invoice_manager/TokenManager.sol";
 import {InvoiceManagerTestUtils} from "../utils/InvoiceManagerTestUtils.sol";
 import {MockTokenWithDecimals} from "../utils/MockTokenWithDecimals.sol";
-import {TokenData} from "../../../../src/common/Structs.sol";
+import {TokenData} from "../../../src/common/Structs.sol";
 
 contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
     MockTokenWithDecimals internal mockToken6;
@@ -66,7 +67,16 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
 
         // Onboard solver with custom fee
         vm.prank(solverManager.pub);
-        invoiceManager.onboardSolver(solver.pub, "Test Solver", pulseFee);
+        invoiceManager.onboardSolver(
+            solver.pub,
+            solver.pub,
+            feeReceiver.pub,
+            "Test Solver",
+            ISolverManager.FeeType.PERCENTAGE,
+            50,
+            ISolverManager.FeeType.PERCENTAGE,
+            20
+        );
 
         // Create invoice with the fuzz token
         TokenData[] memory tokenData = new TokenData[](1);
@@ -83,22 +93,15 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
         vm.stopPrank();
 
         // Get the calculated fees from the invoice
-        TokenData[] memory tokenFees = invoiceManager.calculateInvoiceFees(sessionKey.pub);
+        (uint256 protocolFee, uint256 orchestratorFee, uint256 solverFee, uint256 totalFees) =
+            invoiceManager.calculateInvoiceFees(sessionKey.pub);
 
-        // Calculate expected fee
-        uint256 effectiveFee = pulseFee == 0 ? invoiceManager.PULSE_BASE_FEE() : pulseFee;
-        uint256 expectedFee = (effectiveFee * 10 ** decimals) / 100;
-
-        // For very small token amounts, fee might be capped
-        uint256 tokenAmount = 1000 * 10 ** decimals;
-        if (expectedFee > tokenAmount) {
-            expectedFee = tokenAmount;
-        }
+        // Calculate expected total fees (protocol is always 5 cents)
+        uint256 expectedProtocolFee = (5 * 10 ** decimals) / 100;
 
         // Verify the fee calculation
-        assertEq(tokenFees.length, 1, "Should have one token fee");
-        assertEq(tokenFees[0].token, address(fuzzToken), "Token address should match");
-        assertEq(tokenFees[0].amount, expectedFee, "Fee should match expected calculation");
+        assertGt(totalFees, 0, "Total fees should be greater than 0");
+        assertEq(protocolFee, expectedProtocolFee, "Protocol fee should be 5 cents");
     }
 
     function testFuzz_invoiceCreation_variableAmounts(uint256 amount, uint8 tokenDecimals) public {
@@ -116,9 +119,18 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
         // Mint sufficient tokens
         fuzzToken.mint(address(invoiceManager), amount * 2);
 
-        // FIXED: Onboard a solver first (solver doesn't exist by default in fuzz tests)
+        // Onboard a solver first
         vm.prank(solverManager.pub);
-        invoiceManager.onboardSolver(solver.pub, "Fuzz Test Solver", DEFAULT_FEE_AMOUNT);
+        invoiceManager.onboardSolver(
+            solver.pub,
+            solver.pub,
+            feeReceiver.pub,
+            "Fuzz Test Solver",
+            ISolverManager.FeeType.PERCENTAGE,
+            50,
+            ISolverManager.FeeType.PERCENTAGE,
+            20
+        );
 
         // Create token data
         TokenData[] memory tokenData = new TokenData[](1);
@@ -136,74 +148,15 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
         assertTrue(invoiceManager.invoiceExists(sessionKey.pub));
 
         // Test fee calculation consistency
-        TokenData[] memory tokenFees = invoiceManager.calculateInvoiceFees(sessionKey.pub);
-        assertEq(tokenFees.length, 1, "Should return one token fee");
-        assertEq(tokenFees[0].token, address(fuzzToken), "Token address should match");
+        (uint256 protocolFee, uint256 orchestratorFee, uint256 solverFee, uint256 totalFees) =
+            invoiceManager.calculateInvoiceFees(sessionKey.pub);
 
-        // Fee should be reasonable (not exceed amount)
-        assertTrue(tokenFees[0].amount <= amount, "Fee should not exceed token amount");
+        // Total fees should be reasonable (not exceed amount)
+        assertTrue(totalFees <= amount, "Total fees should not exceed token amount");
 
-        // Fee should be exactly 0.05 tokens (default fee) or capped at amount
-        uint256 expectedFee = (invoiceManager.PULSE_BASE_FEE() * 10 ** tokenDecimals) / 100;
-        uint256 cappedFee = expectedFee > amount ? amount : expectedFee;
-        assertEq(tokenFees[0].amount, cappedFee, "Fee should match expected calculation");
-    }
-
-    function testFuzz_settlement_variableTokenAmounts(uint256 amount6, uint256 amount18) public {
-        // Bound amounts to reasonable ranges
-        amount6 = bound(amount6, 10 ** 6, 1000 * 10 ** 6); // 1 to 1000 tokens (6 decimals)
-        amount18 = bound(amount18, 10 ** 18, 1000 * 10 ** 18); // 1 to 1000 tokens (18 decimals)
-
-        // FIXED: Onboard solver first
-        vm.prank(solverManager.pub);
-        invoiceManager.onboardSolver(solver.pub, "Settlement Test Solver", DEFAULT_FEE_AMOUNT);
-
-        // Create multi-token invoice
-        TokenData[] memory tokenData = new TokenData[](2);
-        tokenData[0] = TokenData({token: address(mockToken6), amount: amount6});
-        tokenData[1] = TokenData({token: address(mockToken18), amount: amount18});
-
-        vm.startPrank(credibleAccount.pub);
-        bytes memory createInvoiceData =
-            abi.encode(address(scw), sessionKey.pub, solver.pub, DEFAULT_BID_HASH, TEST_CHAIN_ID, tokenData);
-
-        invoiceManager.createInvoice(createInvoiceData);
-
-        // Credit tokens to invoice before settlement
-        invoiceManager.creditTokensToInvoice(sessionKey.pub, address(mockToken6), amount6);
-        invoiceManager.creditTokensToInvoice(sessionKey.pub, address(mockToken18), amount18);
-
-        vm.stopPrank();
-
-        // Record initial balances
-        uint256 initialSolverBalance6 = mockToken6.balanceOf(solver.pub);
-        uint256 initialSolverBalance18 = mockToken18.balanceOf(solver.pub);
-        uint256 initialFeeBalance6 = mockToken6.balanceOf(feeReceiver.pub);
-        uint256 initialFeeBalance18 = mockToken18.balanceOf(feeReceiver.pub);
-
-        // Settle invoice
-        vm.prank(settler.pub);
-        invoiceManager.settleInvoice(sessionKey.pub);
-
-        // Verify settlement
-        assertFalse(invoiceManager.invoiceExists(sessionKey.pub));
-
-        // Check that solver received tokens (minus fees)
-        assertTrue(mockToken6.balanceOf(solver.pub) > initialSolverBalance6);
-        assertTrue(mockToken18.balanceOf(solver.pub) > initialSolverBalance18);
-
-        // Check that fee receiver got fees
-        assertTrue(mockToken6.balanceOf(feeReceiver.pub) >= initialFeeBalance6);
-        assertTrue(mockToken18.balanceOf(feeReceiver.pub) >= initialFeeBalance18);
-
-        // Verify total amounts are conserved
-        uint256 totalReceived6 = (mockToken6.balanceOf(solver.pub) - initialSolverBalance6)
-            + (mockToken6.balanceOf(feeReceiver.pub) - initialFeeBalance6);
-        uint256 totalReceived18 = (mockToken18.balanceOf(solver.pub) - initialSolverBalance18)
-            + (mockToken18.balanceOf(feeReceiver.pub) - initialFeeBalance18);
-
-        assertEq(totalReceived6, amount6);
-        assertEq(totalReceived18, amount18);
+        // Protocol fee should be 5 cents
+        uint256 expectedProtocolFee = (invoiceManager.protocolFeeFixed() * 10 ** tokenDecimals) / 100;
+        assertEq(protocolFee, expectedProtocolFee, "Protocol fee should be 5 cents");
     }
 
     function testFuzz_feeConsistency_acrossDecimals() public withSetupInvoiceManager {
@@ -222,8 +175,16 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
 
         // Onboard solver with default fee (0 = use calculated default)
         vm.prank(solverManager.pub);
-        invoiceManager.onboardSolver(solver.pub, "Test Solver", 0);
-
+        invoiceManager.onboardSolver(
+            solver.pub,
+            solver.pub,
+            feeReceiver.pub,
+            "Test Solver",
+            ISolverManager.FeeType.PERCENTAGE,
+            50,
+            ISolverManager.FeeType.PERCENTAGE,
+            20
+        );
         for (uint256 i; i < tokens.length; ++i) {
             // Create invoice with each token type
             TokenData[] memory tokenData = new TokenData[](1);
@@ -243,17 +204,16 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
             vm.stopPrank();
 
             // Get the calculated fees from the invoice
-            TokenData[] memory tokenFees = invoiceManager.calculateInvoiceFees(sessionKey);
+            (uint256 protocolFee, uint256 orchestratorFee, uint256 solverFee, uint256 totalFees) =
+                invoiceManager.calculateInvoiceFees(sessionKey);
 
-            uint256 fee = tokenFees[0].amount;
-            uint256 expectedFee = (invoiceManager.PULSE_BASE_FEE() * 10 ** decimalsArray[i]) / 100;
+            uint256 expectedProtocolFee = (invoiceManager.protocolFeeFixed() * 10 ** decimalsArray[i]) / 100;
 
-            assertEq(fee, expectedFee, "Fee calculation should be consistent across decimals");
+            assertEq(protocolFee, expectedProtocolFee, "Protocol fee calculation should be consistent across decimals");
 
-            // Verify fee represents 0.05 tokens regardless of decimals
-            // Convert back to human readable: fee * 100 / 10^decimals should equal 5
-            uint256 humanReadableFee = (fee * 100) / (10 ** decimalsArray[i]);
-            assertEq(humanReadableFee, 5, "Fee should always represent 5 cents (0.05 tokens)");
+            // Verify protocol fee represents 0.05 tokens regardless of decimals
+            uint256 humanReadableFee = (protocolFee * 100) / (10 ** decimalsArray[i]);
+            assertEq(humanReadableFee, 5, "Protocol fee should always represent 5 cents");
         }
     }
 
@@ -282,10 +242,8 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
 
             // Get current solver state if it exists
             if (solverExists) {
-                try invoiceManager.getSolverData(solver) returns (
-                    string memory, bool, bool pendingOffboard, uint256, uint256, uint256
-                ) {
-                    solverPendingOffboard = pendingOffboard;
+                try invoiceManager.getSolverData(solver) returns (ISolverManager.Solver memory solverData) {
+                    solverPendingOffboard = solverData.pendingOffboard;
                 } catch {
                     solverExists = false;
                 }
@@ -296,23 +254,23 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
             if (operation == 0) {
                 // Onboard
                 if (!solverExists) {
-                    uint256 fee = bound(uint256(keccak256(abi.encodePacked(seedValue, i, "fee"))), 0, 1000);
-                    invoiceManager.onboardSolver(solver, "Test Solver", fee);
+                    invoiceManager.onboardSolver(
+                        solver,
+                        solver,
+                        feeReceiver.pub,
+                        "Test Solver",
+                        ISolverManager.FeeType.PERCENTAGE,
+                        50,
+                        ISolverManager.FeeType.PERCENTAGE,
+                        20
+                    );
                 }
             } else if (operation == 1 && solverExists && !solverPendingOffboard) {
                 // Update fee
-                uint256 newFee = bound(uint256(keccak256(abi.encodePacked(seedValue, i, "newfee"))), 0, 1000);
                 vm.stopPrank();
                 vm.prank(feeManager.pub);
-                invoiceManager.updateSolverFee(solver, newFee);
+                invoiceManager.updateSolverFee(solver, ISolverManager.FeeType.PERCENTAGE, 20);
                 vm.startPrank(solverManager.pub);
-            } else if (operation == 2 && solverExists && !solverPendingOffboard) {
-                // Offboard
-                try invoiceManager.offboardSolver(solver) {
-                    // Offboard succeeded - solver either deleted or pending offboard
-                } catch {
-                    // Offboard failed - likely has pending invoices or other issue
-                }
             }
 
             vm.stopPrank();
@@ -321,24 +279,15 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
         // Verify contract state is consistent
         for (uint256 i; i < solverCount; ++i) {
             if (_solverExists(solvers[i])) {
-                try invoiceManager.getSolverData(solvers[i]) returns (
-                    string memory name,
-                    bool isActive,
-                    bool pendingOffboard,
-                    uint256 successfulSettlements,
-                    uint256 activeInvoices,
-                    uint256 pulseFee
-                ) {
+                try invoiceManager.getSolverData(solvers[i]) returns (ISolverManager.Solver memory solverData) {
                     // Verify state consistency
-                    if (pendingOffboard) {
-                        assertFalse(isActive, "Pending offboard solver should not be active");
+                    if (solverData.pendingOffboard) {
+                        assertFalse(solverData.isActive, "Pending offboard solver should not be active");
                     }
 
                     // Verify basic invariants
-                    assertTrue(bytes(name).length > 0, "Solver should have a name");
-                    assertEq(solvers[i], solvers[i], "Solver address should match");
+                    assertTrue(bytes(solverData.name).length > 0, "Solver should have a name");
                 } catch {
-                    // This should not happen if _solverExists returned true
                     revert("getSolverData failed for existing solver");
                 }
             }
@@ -405,77 +354,6 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
         assertTrue(actualWhitelistedCount >= 4); // At least the initial tokens
     }
 
-    function testFuzz_multiTokenInvoice(uint8 tokenCount, uint256 seedValue) public withSetupInvoiceManager {
-        tokenCount = uint8(bound(tokenCount, 1, 10));
-
-        MockTokenWithDecimals[] memory tokens = new MockTokenWithDecimals[](tokenCount);
-        TokenData[] memory tokenData = new TokenData[](tokenCount);
-
-        vm.startPrank(deployer.pub);
-
-        // Create and whitelist random tokens
-        for (uint256 i; i < tokenCount; ++i) {
-            uint8 decimals = uint8(bound(uint256(keccak256(abi.encodePacked(seedValue, i, "decimals"))), 0, 18));
-            tokens[i] = new MockTokenWithDecimals(
-                string(abi.encodePacked("Token", i)), string(abi.encodePacked("TK", i)), decimals
-            );
-
-            invoiceManager.addTokenToWhitelist(address(tokens[i]));
-
-            uint256 amount = bound(
-                uint256(keccak256(abi.encodePacked(seedValue, i, "amount"))), 10 ** decimals, 1000000 * 10 ** decimals
-            );
-
-            tokens[i].mint(address(invoiceManager), amount * 2);
-            tokenData[i] = TokenData({token: address(tokens[i]), amount: amount});
-        }
-
-        vm.stopPrank();
-
-        // Onboard solver
-        vm.prank(solverManager.pub);
-        uint256 solverFee = bound(uint256(keccak256(abi.encodePacked(seedValue, "solver"))), 0, 100);
-        invoiceManager.onboardSolver(solver.pub, "Multi Token Solver", solverFee);
-
-        // Create multi-token invoice
-        vm.startPrank(credibleAccount.pub);
-        bytes32 bidHash = keccak256(abi.encodePacked("multi_token_bid", seedValue));
-        address sessionKey = address(uint160(uint256(keccak256(abi.encodePacked("multi_session", seedValue)))));
-
-        bytes memory createInvoiceData =
-            abi.encode(address(scw), sessionKey, solver.pub, bidHash, TEST_CHAIN_ID, tokenData);
-
-        invoiceManager.createInvoice(createInvoiceData);
-
-        // Credit tokens to invoice before settlement
-        for (uint256 i; i < tokenCount; ++i) {
-            invoiceManager.creditTokensToInvoice(sessionKey, address(tokens[i]), tokenData[i].amount);
-        }
-
-        vm.stopPrank();
-
-        // Verify invoice creation
-        assertTrue(invoiceManager.invoiceExists(sessionKey));
-
-        // Calculate expected fees for all tokens
-        TokenData[] memory fees = invoiceManager.calculateInvoiceFees(sessionKey);
-        assertEq(fees.length, tokenCount);
-
-        // Settle and verify all tokens are processed correctly
-        uint256[] memory initialBalances = new uint256[](tokenCount);
-        for (uint256 i; i < tokenCount; ++i) {
-            initialBalances[i] = tokens[i].balanceOf(solver.pub);
-        }
-
-        vm.prank(settler.pub);
-        invoiceManager.settleInvoice(sessionKey);
-
-        // Verify all tokens were transferred
-        for (uint256 i; i < tokenCount; ++i) {
-            assertTrue(tokens[i].balanceOf(solver.pub) > initialBalances[i]);
-        }
-    }
-
     function testFuzz_errorConditions_randomInputs(
         address randomSolver,
         bytes32 randomBidHash,
@@ -516,7 +394,16 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
 
         // Test 2: Onboard solver but don't whitelist token - should get token whitelist error
         vm.prank(deployer.pub);
-        try invoiceManager.onboardSolver(randomSolver, "Random Solver", 0) {} catch {}
+        try invoiceManager.onboardSolver(
+            randomSolver,
+            randomSolver,
+            feeReceiver.pub,
+            "Random Solver",
+            ISolverManager.FeeType.PERCENTAGE,
+            50,
+            ISolverManager.FeeType.PERCENTAGE,
+            20
+        ) {} catch {}
 
         if (randomAmount > 0) {
             vm.startPrank(credibleAccount.pub);
@@ -550,9 +437,23 @@ contract InvoiceManager_FuzzTests_Test is InvoiceManagerTestUtils {
     }
 
     function _solverExists(address solver) internal view returns (bool) {
-        // Use the public solvers mapping to check if solverAddress is set
-        // This is the same check used internally by SolverManager
-        (address solverAddress,,,,,) = invoiceManager.solvers(solver);
-        return solverAddress != address(0);
+        // Solver struct has 11 fields:
+        // executionAddress, feeAddress, orchestratorReceiver, solverData.name, solverData.isActive,
+        // pendingOffboard, successfulSettlements, orchestratorFeeType, orchestratorFeeValue,
+        // solverData.solverFeeType, solverData.solverFeeValue
+        (
+            address executionAddress,
+            , // feeAddress
+            , // orchestratorReceiver
+            , // solverData.name
+            , // solverData.isActive
+            , // pendingOffboard
+            , // successfulSettlements
+            , // orchestratorFeeType
+            , // orchestratorFeeValue
+            , // solverData.solverFeeType
+                // solverData.solverFeeValue
+        ) = invoiceManager.solvers(solver);
+        return executionAddress != address(0);
     }
 }

@@ -7,6 +7,7 @@ import {ExecutionLib} from "ERC7579/libs/ExecutionLib.sol";
 import {ModeLib} from "ERC7579/libs/ModeLib.sol";
 import {ModularTestBase} from "../../../ModularTestBase.sol";
 import {ICredibleAccountModule} from "../../../../src/interfaces/ICredibleAccountModule.sol";
+import {ISolverManager} from "../../../../src/interfaces/ISolverManager.sol";
 import "../../../../src/common/Constants.sol";
 import "../../../../src/common/Enums.sol";
 import "../../../../src/common/Structs.sol";
@@ -23,7 +24,16 @@ contract ResourceLockValidatorTestUtils is ModularTestBase {
         _installModule(eoa.pub, scw, MODULE_TYPE_VALIDATOR, address(rlv), abi.encode(eoa.pub));
         // Onboard solver to InvoiceManager
         vm.prank(deployer.pub);
-        im.onboardSolver(solver.pub, "solver1", 0);
+        im.onboardSolver(
+            solver.pub,
+            solver.pub,
+            address(this), // or appropriate orchestrator address
+            "solver 1",
+            ISolverManager.FeeType.PERCENTAGE,
+            50,
+            ISolverManager.FeeType.PERCENTAGE,
+            20
+        );
         vm.startPrank(address(scw));
         _;
         vm.stopPrank();

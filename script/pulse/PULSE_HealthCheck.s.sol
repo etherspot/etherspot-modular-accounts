@@ -4,6 +4,7 @@ pragma solidity ^0.8.23;
 import "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ISolverManager} from "../../src/interfaces/ISolverManager.sol";
 import {ModularEtherspotWallet} from "../../src/wallet/ModularEtherspotWallet.sol";
 import {HookType} from "../../src/common/Enums.sol";
 import {HookMultiPlexer} from "../../src/modules/hooks/HookMultiPlexer.sol";
@@ -95,8 +96,8 @@ contract PULSE_HealthCheck is Script {
         console2.log("Address:", address(invoiceManager));
 
         // Check configuration
-        address feeReceiver = invoiceManager.feeReceiver();
-        console2.log("Fee receiver:", feeReceiver);
+        address protocolFeeReceiver = invoiceManager.protocolFeeReceiver();
+        console2.log("Protocol fee receiver:", protocolFeeReceiver);
 
         // Check whitelisted tokens
         address[] memory whitelistedTokens = invoiceManager.getWhitelistedTokens();
@@ -173,21 +174,23 @@ contract PULSE_HealthCheck is Script {
             address solver = checkSolvers[i];
             console2.log("Solver:", solver);
 
-            (
-                string memory name,
-                bool isActive,
-                bool pendingOffboard,
-                uint256 successfulSettlements,
-                uint256 activeInvoices,
-                uint256 pulseFee
-            ) = invoiceManager.getSolverData(solver);
+            ISolverManager.Solver memory solverData = invoiceManager.getSolverData(solver);
+            uint256 activeInvoices = invoiceManager.getSolverInvoices(solver).length;
 
-            console2.log("  Name:", name);
-            console2.log("  Active:", isActive);
-            console2.log("  Pending offboard:", pendingOffboard);
-            console2.log("  Successful settlements:", successfulSettlements);
+            console2.log("  Name:", solverData.name);
+            console2.log("  Active:", solverData.isActive);
+            console2.log("  Pending offboard:", solverData.pendingOffboard);
+            console2.log("  Successful settlements:", solverData.successfulSettlements);
             console2.log("  Active invoices:", activeInvoices);
-            console2.log("  Pulse fee (cents):", pulseFee);
+            console2.log(
+                "  Orchestrator fee type:",
+                solverData.orchestratorFeeType == ISolverManager.FeeType.FIXED ? "FIXED" : "PERCENTAGE"
+            );
+            console2.log("  Orchestrator fee value:", solverData.orchestratorFeeValue);
+            console2.log(
+                "  Solver fee type:", solverData.solverFeeType == ISolverManager.FeeType.FIXED ? "FIXED" : "PERCENTAGE"
+            );
+            console2.log("  Solver fee value:", solverData.solverFeeValue);
         }
 
         console2.log("");

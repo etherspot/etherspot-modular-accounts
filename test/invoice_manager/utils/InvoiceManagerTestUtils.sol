@@ -4,16 +4,15 @@ pragma solidity 0.8.23;
 import "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {IInvoiceManager} from "../../../../src/interfaces/IInvoiceManager.sol";
-import {InvoiceManager} from "../../../../src/invoice_manager/InvoiceManager.sol";
-import {TestERC20} from "../../../../src/test/TestERC20.sol";
-import {TestUSDC} from "../../../../src/test/TestUSDC.sol";
-import {TokenData} from "../../../../src/common/Structs.sol";
-import "../../../ModularTestBase.sol";
+import {IInvoiceManager} from "../../../src/interfaces/IInvoiceManager.sol";
+import {ISolverManager} from "../../../src/interfaces/ISolverManager.sol";
+import {InvoiceManager} from "../../../src/invoice_manager/InvoiceManager.sol";
+import {TestERC20} from "../../../src/test/TestERC20.sol";
+import {TestUSDC} from "../../../src/test/TestUSDC.sol";
+import {TokenData} from "../../../src/common/Structs.sol";
+import "../../ModularTestBase.sol";
 
 contract InvoiceManagerTestUtils is ModularTestBase {
-    using ECDSA for bytes32;
-
     /*//////////////////////////////////////////////////////////////
                               VARIABLES
     //////////////////////////////////////////////////////////////*/
@@ -29,7 +28,9 @@ contract InvoiceManagerTestUtils is ModularTestBase {
     TestERC20 internal nonWhitelistedToken;
 
     // Test users
-    User internal feeReceiver;
+    User internal protocolFeeReceiver;
+    User internal orchestratorFeeReceiver;
+    User internal feeReceiver; // Legacy - same as orchestratorFeeReceiver for backward compatibility
     User internal feeManager;
     User internal solverManager;
     User internal credibleAccount;
@@ -42,7 +43,6 @@ contract InvoiceManagerTestUtils is ModularTestBase {
     ModularEtherspotWallet scw2;
 
     // Test constants
-    uint256 internal constant DEFAULT_FEE_AMOUNT = 0; // Use calculated default
     uint256 internal constant HIGH_FEE_AMOUNT = 50; // 0.5 USDC fixed
     uint256 internal constant LOW_FEE_AMOUNT = 1; // 0.01 USDC fixed
     uint256 internal constant CUSTOM_FEE_AMOUNT = 75; // 0.75 USDC fixed
@@ -93,7 +93,9 @@ contract InvoiceManagerTestUtils is ModularTestBase {
         _testInit();
 
         // Create test users
-        feeReceiver = _createUser("Fee Receiver");
+        protocolFeeReceiver = _createUser("Protocol Fee Receiver");
+        orchestratorFeeReceiver = _createUser("Orchestrator Fee Receiver");
+        feeReceiver = orchestratorFeeReceiver; // For backward compatibility
         feeManager = _createUser("Fee Manager");
         solverManager = _createUser("Solver Manager");
         credibleAccount = _createUser("Credible Account");
@@ -129,8 +131,8 @@ contract InvoiceManagerTestUtils is ModularTestBase {
 
         vm.startPrank(deployer.pub);
 
-        // Deploy InvoiceManager with whitelisted tokens
-        invoiceManager = new InvoiceManager(deployer.pub, credibleAccount.pub, feeReceiver.pub, feeManager.pub);
+        // Deploy InvoiceManager with separate protocol fee receiver
+        invoiceManager = new InvoiceManager(deployer.pub, credibleAccount.pub, protocolFeeReceiver.pub, feeManager.pub);
 
         vm.label(address(invoiceManager), "InvoiceManager");
 
@@ -151,22 +153,36 @@ contract InvoiceManagerTestUtils is ModularTestBase {
         // Clear existing data
         delete defaultTokenData;
 
-        // Add default token amounts
+        // Single token support (USDC only)
         defaultTokenData.push(TokenData({token: address(testUSDC), amount: DEFAULT_USDC_AMOUNT}));
-
-        defaultTokenData.push(TokenData({token: address(testUSDT), amount: DEFAULT_USDT_AMOUNT}));
-
-        defaultTokenData.push(TokenData({token: address(testDAI), amount: DEFAULT_DAI_AMOUNT}));
     }
 
     function _onboardDefaultSolvers() internal {
         vm.startPrank(solverManager.pub);
 
-        // Onboard solver1 with default fee (0 = use calculated per-token fee)
-        invoiceManager.onboardSolver(solver.pub, "Solver One", DEFAULT_FEE_AMOUNT);
+        // Onboard solver1 with percentage-based fees
+        invoiceManager.onboardSolver(
+            solver.pub, // executionAddress
+            solver.pub, // feeAddress (same as execution)
+            feeReceiver.pub, // orchestratorReceiver
+            "Solver One",
+            ISolverManager.FeeType.PERCENTAGE,
+            50, // 0.5% orchestrator fee
+            ISolverManager.FeeType.PERCENTAGE,
+            20 // 0.2% solver fee
+        );
 
-        // Onboard solver2 with custom fee (50 = 0.5 USDC fixed fee)
-        invoiceManager.onboardSolver(solver2.pub, "Solver Two", HIGH_FEE_AMOUNT);
+        // Onboard solver2 with fixed fees
+        invoiceManager.onboardSolver(
+            solver2.pub, // executionAddress
+            solver2.pub, // feeAddress (same as execution)
+            feeReceiver.pub, // orchestratorReceiver
+            "Solver Two",
+            ISolverManager.FeeType.FIXED,
+            10, // 10 cents orchestrator fee
+            ISolverManager.FeeType.FIXED,
+            5 // 5 cents solver fee
+        );
 
         vm.stopPrank();
     }
@@ -231,26 +247,13 @@ contract InvoiceManagerTestUtils is ModularTestBase {
         tokenData[0] = TokenData({token: _token, amount: _amount});
     }
 
-    function _calculateExpectedFees(TokenData[] memory _tokenData, uint256 _feePercentage)
-        internal
-        pure
-        returns (uint256 totalFees, uint256 totalSolverAmount)
-    {
-        for (uint256 i = 0; i < _tokenData.length; i++) {
-            uint256 fee = (_tokenData[i].amount * _feePercentage) / 10000; // BASIS_POINTS
-            uint256 solverAmount = _tokenData[i].amount - fee;
-            totalFees += fee;
-            totalSolverAmount += solverAmount;
-        }
-    }
-
     function _getTokenBalances(address _account, address[] memory _tokens)
         internal
         view
         returns (uint256[] memory balances)
     {
         balances = new uint256[](_tokens.length);
-        for (uint256 i = 0; i < _tokens.length; i++) {
+        for (uint256 i; i < _tokens.length; ++i) {
             balances[i] = IERC20(_tokens[i]).balanceOf(_account);
         }
     }
@@ -283,20 +286,64 @@ contract InvoiceManagerTestUtils is ModularTestBase {
         invoiceManager.settleInvoice(_sessionKey);
     }
 
+    /**
+     * @notice Calculate total fees for a token amount based on solver configuration
+     * @param _solver Solver address
+     * @param _token Token address
+     * @param _amount Token amount
+     * @return protocolFee Protocol fee amount
+     * @return orchestratorFee Orchestrator fee amount
+     * @return solverFee Solver fee amount
+     * @return totalFees Sum of all fees
+     */
+    function _calculateExpectedTotalFees(address _solver, address _token, uint256 _amount)
+        internal
+        view
+        returns (uint256 protocolFee, uint256 orchestratorFee, uint256 solverFee, uint256 totalFees)
+    {
+        // Get solver data
+        ISolverManager.Solver memory solverData = invoiceManager.getSolverData(_solver);
+
+        uint8 decimals = IERC20Metadata(_token).decimals();
+
+        // Protocol fee (5 cents fixed)
+        protocolFee = (invoiceManager.protocolFeeFixed() * 10 ** decimals) / 100;
+        uint256 remaining = _amount - protocolFee;
+
+        // Orchestrator fee
+        if (solverData.orchestratorFeeType == ISolverManager.FeeType.FIXED) {
+            orchestratorFee = (solverData.orchestratorFeeValue * 10 ** decimals) / 100;
+        } else {
+            orchestratorFee = (remaining * solverData.orchestratorFeeValue) / 10000;
+        }
+        remaining = remaining - orchestratorFee;
+
+        // Solver fee
+        if (solverData.solverFeeType == ISolverManager.FeeType.FIXED) {
+            solverFee = (solverData.solverFeeValue * 10 ** decimals) / 100;
+        } else {
+            solverFee = (remaining * solverData.solverFeeValue) / 10000;
+        }
+
+        totalFees = protocolFee + orchestratorFee + solverFee;
+    }
+
+    /**
+     * @notice Calculate only protocol fee for backward compatibility with tests
+     */
+    function _calculateExpectedFeeForToken(address _token, uint256 _feeOverride) internal view returns (uint256) {
+        uint256 protocolFee = invoiceManager.protocolFeeFixed();
+
+        try IERC20Metadata(_token).decimals() returns (uint8 decimals) {
+            return (protocolFee * 10 ** decimals) / 100;
+        } catch {
+            return (protocolFee * 10 ** 18) / 100;
+        }
+    }
+
     function _settleInvoiceAsSmartWallet(address _sessionKey, address _smartWallet) internal {
         vm.prank(_smartWallet);
         invoiceManager.settleInvoice(_sessionKey);
-    }
-
-    function _calculateExpectedFeeForToken(address _token, uint256 _feeOverride) internal view returns (uint256) {
-        // Use the same constant as the contract
-        uint256 pulseFee = _feeOverride == 0 ? invoiceManager.PULSE_BASE_FEE() : _feeOverride;
-
-        try IERC20Metadata(_token).decimals() returns (uint8 decimals) {
-            return (pulseFee * 10 ** decimals) / 100;
-        } catch {
-            return (pulseFee * 10 ** 18) / 100;
-        }
     }
 
     function _creditTokensToInvoice(address _sessionKey) internal {

@@ -384,7 +384,8 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         TokenData[] memory tokens = new TokenData[](5);
         for (uint256 i; i < 5; ++i) {
             address newToken = address(new TestERC20());
-            tokens[i] = TokenData({token: newToken, amount: vm.randomUint()});
+            uint256 randomAmount = bound(vm.randomUint(), 1e18, 1e24); // between 1 and 1M tokens
+            tokens[i] = TokenData({token: newToken, amount: randomAmount});
             // Add new token to whitelisted tokens in InvoiceManager
             _addTokenToInvoiceManagerWhitelist(newToken);
         }
@@ -478,7 +479,8 @@ contract ResourceLockValidator_Concrete_Test is TestUtils {
         TokenData[] memory tokens = new TokenData[](5);
         for (uint256 i; i < 5; ++i) {
             address newToken = address(new TestERC20());
-            tokens[i] = TokenData({token: newToken, amount: vm.randomUint()});
+            uint256 randomAmount = bound(vm.randomUint(), 1e18, 1e24); // between 1 and 1M tokens
+            tokens[i] = TokenData({token: newToken, amount: randomAmount});
             _addTokenToInvoiceManagerWhitelist(newToken);
         }
         // Create ResourceLock with large TokenData array
