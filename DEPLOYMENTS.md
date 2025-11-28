@@ -250,3 +250,38 @@
 | `MultipleOwnerECDSAValidator` | `xdc_apothem` | [0x0eA25BF9F313344d422B513e1af679484338518E](https://apothem.blocksscan.io/address/0x0eA25BF9F313344d422B513e1af679484338518E) | [0x9c703aedb6dbbcce3886a32b7cf9aa0b97fabb4cf5df7ed885cbd313202a24ff](https://explorer.apothem.network/tx/0x9c703aedb6dbbcce3886a32b7cf9aa0b97fabb4cf5df7ed885cbd313202a24ff#overview) |
 | `ERC20SessionKeyValidator` | `xdc_apothem` | [0x22A55192a663591586241D42E603221eac49ed09](https://apothem.blocksscan.io/address/0x22A55192a663591586241D42E603221eac49ed09) | [0x650104f1d0252d7261f8cdc5b4292949235fed64b42fa5fe929100b5d16c5565](https://explorer.apothem.network/tx/0x650104f1d0252d7261f8cdc5b4292949235fed64b42fa5fe929100b5d16c5565#overview) |
 | `HookMultiPlexer` | `xdc_apothem` | [0xDcA918dd23456d321282DF9507F6C09A50522136](https://apothem.blocksscan.io/address/0xDcA918dd23456d321282DF9507F6C09A50522136) | [0x2b986c0c52c7239475f16ee25fe701bba1a6f4a4d9f3e65059571bb4984cad7c](https://explorer.apothem.network/tx/0x2b986c0c52c7239475f16ee25fe701bba1a6f4a4d9f3e65059571bb4984cad7c#overview) |
+
+
+## GasTankPaymasters
+
+| Network | Supported Token | Contract Address |
+| ------- | --------------- | ---------------- |
+| `arbitrum` | USDC | [0x5bb1125f293de98927aef30a6c8726b98c07cbdd](https://arbiscan.io/address/0x5bb1125f293de98927aef30a6c8726b98c07cbdd) |
+| `base` | USDC | [0x5bb1125f293de98927aef30a6c8726b98c07cbdd](https://basescan.org/address/0x5bb1125f293de98927aef30a6c8726b98c07cbdd) |
+| `binance_smart_chain` | USDC | [0x5bb1125f293de98927aef30a6c8726b98c07cbdd](https://bscscan.com/address/0x5bB1125f293DE98927Aef30a6C8726B98C07Cbdd) |
+| `ethereum` | USDC | [0x5bb1125f293de98927aef30a6c8726b98c07cbdd](https://etherscan.io/address/0x5bB1125f293DE98927Aef30a6C8726B98C07Cbdd) |
+| `optimism` | USDC | [0x5bb1125f293de98927aef30a6c8726b98c07cbdd](https://optimistic.etherscan.io/address/0x5bB1125f293DE98927Aef30a6C8726B98C07Cbdd) |
+| `polygon` | USDC | [0x5bb1125f293de98927aef30a6c8726b98c07cbdd](https://polygonscan.com/address/0x5bB1125f293DE98927Aef30a6C8726B98C07Cbdd) |
+
+## Estimation Contracts
+
+| Contract Name | Network | Contract Address | Transaction Hash |  
+| --- | --- | --- |  --- |
+| `CredibleAccountModule` | `arbitrum` | [0x6C32CC106de33BC97acdcA72897d26eb30edADA4](https://arbiscan.io/address/0x6C32CC106de33BC97acdcA72897d26eb30edADA4) | 
+| `ResourceLockValidator` | `arbitrum` | [0xF2f12F197700BF5740e94e18bde637392421043c](https://arbiscan.io/address/0xF2f12F197700BF5740e94e18bde637392421043c) | 
+| `InvoiceManager` | `arbitrum` | [0xd39c3246B09eC1989E9af605d7Fe9cE675282C38](https://arbiscan.io/address/0xd39c3246B09eC1989E9af605d7Fe9cE675282C38) | 
+| `CredibleAccountModule` | `base` | [0x6C32CC106de33BC97acdcA72897d26eb30edADA4](https://basescan.org/address/0x6C32CC106de33BC97acdcA72897d26eb30edADA4) | 
+| `ResourceLockValidator` | `base` | [0xF2f12F197700BF5740e94e18bde637392421043c](https://basescan.org/address/0xF2f12F197700BF5740e94e18bde637392421043c) | 
+| `InvoiceManager` | `base` | [0xd39c3246B09eC1989E9af605d7Fe9cE675282C38](https://basescan.org/address/0xd39c3246B09eC1989E9af605d7Fe9cE675282C38) | 
+| `CredibleAccountModule` | `binance_smart_chain` | [0x6C32CC106de33BC97acdcA72897d26eb30edADA4](https://bscscan.com/address/0x6C32CC106de33BC97acdcA72897d26eb30edADA4) | 
+| `ResourceLockValidator` | `binance_smart_chain` | [0xF2f12F197700BF5740e94e18bde637392421043c](https://bscscan.com/address/0xF2f12F197700BF5740e94e18bde637392421043c) |
+| `InvoiceManager` | `binance_smart_chain` | [0xd39c3246B09eC1989E9af605d7Fe9cE675282C38](https://bscscan.com/address/0xd39c3246B09eC1989E9af605d7Fe9cE675282C38) |
+| `CredibleAccountModule` | `ethereum` | [0x6C32CC106de33BC97acdcA72897d26eb30edADA4](https://etherscan.io/address/0x6C32CC106de33BC97acdcA72897d26eb30edADA4) | 
+| `ResourceLockValidator` | `ethereum` | [0xF2f12F197700BF5740e94e18bde637392421043c](https://etherscan.io/address/0xF2f12F197700BF5740e94e18bde637392421043c) | 
+| `InvoiceManager` | `ethereum` | [0xd39c3246B09eC1989E9af605d7Fe9cE675282C38](https://etherscan.io/address/0xd39c3246B09eC1989E9af605d7Fe9cE675282C38) |
+| `CredibleAccountModule` | `optimism` | [0x6C32CC106de33BC97acdcA72897d26eb30edADA4](https://optimistic.etherscan.io/address/00x6C32CC106de33BC97acdcA72897d26eb30edADA4) | 
+| `ResourceLockValidator` | `optimism` | [0xF2f12F197700BF5740e94e18bde637392421043c](https://optimistic.etherscan.io/address/0xF2f12F197700BF5740e94e18bde637392421043c) | 
+| `InvoiceManager` | `optimism` | [0xd39c3246B09eC1989E9af605d7Fe9cE675282C38](https://optimistic.etherscan.io/address/0xd39c3246B09eC1989E9af605d7Fe9cE675282C38) | 
+| `CredibleAccountModule` | `polygon` | [0x6C32CC106de33BC97acdcA72897d26eb30edADA4](https://polygonscan.com/address/0x6C32CC106de33BC97acdcA72897d26eb30edADA4) | 
+| `ResourceLockValidator` | `polygon` | [0xF2f12F197700BF5740e94e18bde637392421043c](https://polygonscan.com/address/0xF2f12F197700BF5740e94e18bde637392421043c) | 
+| `InvoiceManager` | `polygon` | [0xd39c3246B09eC1989E9af605d7Fe9cE675282C38](https://polygonscan.com/address/0xd39c3246B09eC1989E9af605d7Fe9cE675282C38) | 
